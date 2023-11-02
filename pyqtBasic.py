@@ -18,6 +18,9 @@ class MyWin(QMainWindow):
         
         self.stockName = ""
         self.stockCode = ""
+        self.needSelectData = ""
+        self.selectedData = ""
+        self.addedCnt = 0
         
         #이벤트 처리
         self.ocx.OnReceiveTrData.connect(self.receive_trdata)
@@ -26,62 +29,72 @@ class MyWin(QMainWindow):
         self.ocx.OnReceiveMsg.connect(self.received_msg)
         
         #종목코드 입력란
-        label = QLabel("종목코드: ", self)
+        label = QLabel("종목명: ", self)
         self.code_edit=QLineEdit(self)
         # self.code_edit.setText("039490") #종목코드 입력란
         searchBtn = QPushButton("조회", self)
-        testBtn = QPushButton("test", self)
+        # testBtn = QPushButton("test", self)
+        # testBtn.clicked.connect(self.openPopup)
+        # testBtn.move(260, 20)
         
         self.code_edit.textChanged.connect(self.test) #텍스트 입력하는 동시에 이벤트 발생
         self.code_edit.editingFinished.connect(self.pressEnter) #엔터를 입력해야 인식하는 이벤트
-        # self.code_edit.returnPressed.connect(lambda: self.enterEvent()) #엔터이벤트 2
+        # self.code_edit.returnPressed.connect(lambda: self.pressEnter()) #엔터이벤트 2
+        
         searchBtn.clicked.connect(self.searchBtn_clicked)
-        testBtn.clicked.connect(self.openPopup)
+        
         
         label.move(20, 20)
         self.code_edit.move(80, 20)
         searchBtn.move(190, 20)
-        testBtn.move(260, 20)
+        
         
         self.text_edit = QTextEdit(self)
         self.text_edit.setGeometry(10,60,280,80)
         self.text_edit.setEnabled(False)
     
-        """
-        # JSON 문자열을 파이썬 리스트로 파싱
-        data = json.loads(json_data)
-
-        # 나이가 30 이상인 데이터만 선택
-        filtered_data = [item for item in data if item["age"] >= 30]
-
-        # 결과를 JSON 형식으로 변환
-        filtered_json = json.dumps(filtered_data)
-        """
-    
-    
     def test(self):
-        text = self.code_edit.text()
-        self.code_edit.setCursorPosition(len(text) +1)
-        filtered_data = [item for item in data if item["name"].find(text) != -1] # string.find(txt) == -1이면 해당 텍스트 없음
-        # self.stockName = filtered_data[0]["name"]
-        if len(filtered_data) == 1 :
-            self.stockCode = filtered_data[0]['code']
-            self.stockName = filtered_data[0]['name']
-            # self.code_edit.setText(self.stockName)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.code_edit)
+        word_list = []
+        
+        text = self.code_edit.text().upper()
+        if len(text) > 0:
+            self.code_edit.setCursorPosition(len(text) +1)
+            filtered_data = [item for item in data if item["name"].find(text) != -1] # string.find(txt) == -1이면 해당 텍스트 없음
+            if(len(filtered_data) > 10) :
+                filtered_data = filtered_data[:10]
+            
+            #자동완성 항목들 json에서 추출
+            filtered_name = [item['name'] for item in filtered_data]
+            word_list = filtered_name
+            completer = QCompleter(word_list, self)
+            completer.setCaseSensitivity(0) #대소문자 미구문
+            self.code_edit.setCompleter(completer)
+            
+            self.needSelectData = filtered_data #추출된 데이터 needSelectData에 바인딩
         
     def pressEnter(self):
-        print("enter event")
-        print("json에서 추출한 종목코드 : ", self.stockCode, self.stockName)
+        inputText = self.code_edit.text().upper()
+        toFind = [item for item in self.needSelectData if item['name'] == inputText][0]
+        if toFind :
+            self.stockCode = toFind['code']
+            self.stockName = toFind['name']
+            self.searchBtn_clicked()
+        # print("enter event", self.needSelectData)
+        # if(len(self.needSelectData) > 1):
+        #     self.openPopup()
         
         #CommConnect(사용자 호출) -> 로그인창 출력 -> OnEventConnect(이벤트 발생)
     def searchBtn_clicked(self):
-        code = self.code_edit.text()
-        self.text_edit.append("조회 종목코드 : " + code)
+        if len(self.stockCode) > 0:
+            code = self.stockCode
+            self.text_edit.append("조회 종목코드 : " + code)
         
-        #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
-        self.ocx.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
-        self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",
-                             "opt10001_req","opt10001",0,"0101")
+            #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
+            self.ocx.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+            self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",
+                                "opt10001_req","opt10001",0,"0101")
         
     def loginEvent(self):
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
@@ -130,7 +143,7 @@ class MyWin(QMainWindow):
         return stockName
     
     def openPopup(self):
-        toPassData = "is came from Main"
+        toPassData = "is came from parent"
         self.newWindow = NewWindow(self, toPassData)
         self.newWindow.show()
     
