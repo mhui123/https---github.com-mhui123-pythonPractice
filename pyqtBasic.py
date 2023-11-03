@@ -12,15 +12,16 @@ with open('./codeList.json', 'r', encoding='utf-8') as file:
 class MyWin(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.loginEvent()
-        self.setWindowTitle("pyStock")
-        self.setGeometry(300,300,500,150)
-        
+        self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
         self.stockName = ""
         self.stockCode = ""
         self.needSelectData = ""
         self.selectedData = ""
         self.addedCnt = 0
+        
+        self.loginEvent()
+        self.setWindowTitle("pyStock")
+        self.setGeometry(300,300,500,150)
         
         #이벤트 처리
         self.ocx.OnReceiveTrData.connect(self.receive_trdata)
@@ -33,12 +34,13 @@ class MyWin(QMainWindow):
         self.code_edit=QLineEdit(self)
         # self.code_edit.setText("039490") #종목코드 입력란
         searchBtn = QPushButton("조회", self)
-        # testBtn = QPushButton("test", self)
+        testBtn = QPushButton("test", self)
         # testBtn.clicked.connect(self.openPopup)
-        # testBtn.move(260, 20)
+        testBtn.clicked.connect(self.hoga_test)
+        testBtn.move(260, 20)
         
         self.code_edit.textChanged.connect(self.test) #텍스트 입력하는 동시에 이벤트 발생
-        self.code_edit.editingFinished.connect(self.pressEnter) #엔터를 입력해야 인식하는 이벤트
+        self.code_edit.returnPressed.connect(self.pressEnter) #엔터를 입력해야 인식하는 이벤트 returnPressed editingFinished
         # self.code_edit.returnPressed.connect(lambda: self.pressEnter()) #엔터이벤트 2
         
         searchBtn.clicked.connect(self.searchBtn_clicked)
@@ -91,13 +93,13 @@ class MyWin(QMainWindow):
             code = self.stockCode
             self.text_edit.append("조회 종목코드 : " + code)
         
-            #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
-            self.ocx.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
-            self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",
-                                "opt10001_req","opt10001",0,"0101")
+            self.requestData("opt10001", "종목코드", code, "0101")
+    
+    def hoga_test(self):
+        code = self.stockCode
+        result = self.requestData("opt10004", "종목코드", code, "0111")
         
     def loginEvent(self):
-        self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
         self.ocx.dynamicCall("CommConnect()")
         self.ocx.OnEventConnect.connect(self.loginResult)
         
@@ -105,16 +107,59 @@ class MyWin(QMainWindow):
         errCodes = {"0" : "로그인 성공", "101" : "정보교환 실패", "102" : "서버접속 실패", "103" : "버전처리 실패"}
         self.text_edit.append(errCodes[str(err_code)])
             
-    def receive_trdata(self, screenNo, rqName, trCode, recordName, preNext):
-        if rqName == "opt10001_req":
-            name = self.ocx.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trCode, "", rqName, 0, "종목명")
-            volume = self.ocx.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trCode, "", rqName, 0, "거래량")
-            self.text_edit.append("종목명 :" + name.strip())
-            self.text_edit.append("거래량 :" + volume.strip())
-
     def received_msg(self, screenNo, rqName, trCode, msg):
         print("받아온 메세지 출력 :" + screenNo, rqName, trCode, msg)
-        
+    
+    def requestData(self, trCode, itemNm, code, screenNo, isContinue = 0):
+        isContinue = 2 if isContinue == "연속" else 0
+        rqName = trCode+"_req"
+        #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
+        self.ocx.dynamicCall("SetInputValue(QString, QString)", itemNm, code)
+        self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",rqName, trCode, isContinue, screenNo)
+    
+    def receive_trdata(self, screenNo, rqName, trCode, recordName, preNext):
+        #복수데이터의 경우 idx가 항목 순서이다.
+        nCnt = self.ocx.dynamicCall("GetRepeatCnt(QString, QString)", trCode, rqName)
+        print("nCnt : ", nCnt)
+        # for i in range(0, nCnt):
+        if rqName == "opt10001_req":
+            name = self.getCommData(trCode, rqName, "종목명")
+            volume = self.getCommData(trCode, rqName, "거래량")
+            self.text_edit.append("종목명 :" + name.strip())
+            self.text_edit.append("거래량 :" + volume.strip())
+        else :
+            outputParams = ["호가잔량기준시간",
+                            "매도10차선잔량", "매도10차선호가",
+                            "매도9차선잔량", "매도9차선호가",
+                            "매도8차선잔량", "매도8차선호가",
+                            "매도7차선잔량", "매도7차선호가",
+                            "매도6우선잔량", "매도6차선호가",
+                            "매도5차선잔량", "매도5차선호가",
+                            "매도4차선잔량", "매도4차선호가",
+                            "매도3차선잔량", "매도3차선호가",
+                            "매도2차선잔량", "매도2차선호가",
+                            "매도최우선잔량", "매도최우선호가",
+                            
+                            "매수최우선잔량", "매수최우선호가",
+                            "매수2차선잔량", "매수2차선호가",
+                            "매수3차선잔량", "매수3차선호가",
+                            "매수4차선잔량", "매수4차선호가",
+                            "매수5차선잔량", "매수5차선호가",
+                            "매수6우선잔량", "매수6우선호가",
+                            "매수7차선잔량", "매수7차선호가",
+                            "매수8차선잔량", "매수8차선호가",
+                            "매수9차선잔량", "매수9차선호가",
+                            "매수10차선잔량", "매수10차선호가",
+                            
+                            "총매도잔량", "총매수잔량",
+                            "시간외매도잔량","시간외매수잔량"
+                            ]
+            for item in outputParams :
+                a = self.getCommData(trCode, rqName, item)
+                print(item + " : " + a)
+      
+    def getCommData(self, trCode, recordName, itemNm, idx = 0):
+        return self.ocx.dynamicCall("GetCommData(QString, QString, int, QString)", trCode, recordName, idx, itemNm)
     
     def getMarketInfo(self):
         #GetCodeListByMarket(gubun) : 종목코드 리스트 호출 # 구분값 없을 시 전체 코드리스트
