@@ -5,6 +5,7 @@ from PyQt5 import QtCore
 from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt
 
 with open('./codeList.json', 'r', encoding='utf-8') as file:
     data = json.load(file)
@@ -39,7 +40,7 @@ class MyWin(QMainWindow):
         testBtn.clicked.connect(self.hoga_test)
         testBtn.move(260, 20)
         
-        self.code_edit.textChanged.connect(self.test) #텍스트 입력하는 동시에 이벤트 발생
+        self.code_edit.textChanged.connect(self.typing) #텍스트 입력하는 동시에 이벤트 발생
         self.code_edit.returnPressed.connect(self.pressEnter) #엔터를 입력해야 인식하는 이벤트 returnPressed editingFinished
         # self.code_edit.returnPressed.connect(lambda: self.pressEnter()) #엔터이벤트 2
         
@@ -54,24 +55,29 @@ class MyWin(QMainWindow):
         self.text_edit = QTextEdit(self)
         self.text_edit.setGeometry(10,60,280,80)
         self.text_edit.setEnabled(False)
-    
-    def test(self):
+        
         layout = QVBoxLayout(self)
         layout.addWidget(self.code_edit)
+    
+    def test(self):
+        print("test")
+    
+    def typing(self):
         word_list = []
         
         text = self.code_edit.text().upper()
         if len(text) > 0:
             self.code_edit.setCursorPosition(len(text) +1)
             filtered_data = [item for item in data if item["name"].find(text) != -1] # string.find(txt) == -1이면 해당 텍스트 없음
-            if(len(filtered_data) > 10) :
-                filtered_data = filtered_data[:10]
+            if(len(filtered_data) > 15) :
+                filtered_data = filtered_data[:15]
             
             #자동완성 항목들 json에서 추출
             filtered_name = [item['name'] for item in filtered_data]
             word_list = filtered_name
             completer = QCompleter(word_list, self)
             completer.setCaseSensitivity(0) #대소문자 미구문
+            completer.setFilterMode(Qt.MatchContains) #중간일치여부 필터링
             self.code_edit.setCompleter(completer)
             
             self.needSelectData = filtered_data #추출된 데이터 needSelectData에 바인딩
@@ -156,6 +162,7 @@ class MyWin(QMainWindow):
                             ]
             for item in outputParams :
                 a = self.getCommData(trCode, rqName, item)
+                #호가잔량기준시간 : hhMMss
                 print(item + " : " + a)
       
     def getCommData(self, trCode, recordName, itemNm, idx = 0):
