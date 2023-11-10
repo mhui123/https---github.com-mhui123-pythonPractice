@@ -1,15 +1,40 @@
-import sys
+import sys, os
 import json
 import datetime
 import re
+import platform
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant
 
-with open('./codeList.json', 'r', encoding='utf-8') as file:
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+jsonPath = ""
+if getattr(sys, 'frozen', False):
+    jsonPath = resource_path("codeList.json")
+else :
+    jsonPath = 'codeList.json'
+    
+with open(jsonPath, 'r', encoding='utf-8') as file:
     data = json.load(file)
+
+bitness = platform.architecture()[0]
+if bitness == '32bit' : 
+    print("run in 32bit")
+elif bitness == '64bit' :
+    print("run in 64bit")
+else :
+    print(f"undetermined platform ::: {bitness}")
 
 class MyWin(QMainWindow):
     dataChanged = pyqtSignal(QVariant)
@@ -25,8 +50,8 @@ class MyWin(QMainWindow):
         self.hoga_dict = {}
         
         self.loginEvent()
-        self.setWindowTitle("pyStock")
-        self.setGeometry(300,300,500,150)
+        self.setWindowTitle("hogaHelper")
+        self.setGeometry(300,300,300,200)
         
         """ocx 이벤트구간"""
         self.ocx.OnReceiveTrData.connect(self.receive_trdata) #이벤트 처리
@@ -38,17 +63,16 @@ class MyWin(QMainWindow):
         self.code_edit=QLineEdit(self)
         # self.code_edit.setText("039490") #종목코드 입력란
         searchBtn = QPushButton("조회", self)
-        testBtn = QPushButton("test", self)
-        testBtn2 = QPushButton("실시간 해제", self)
-        testBtn3 = QPushButton("popup test", self)
-        testBtn.move(280, 20)
-        testBtn2.move(280, 60)
-        testBtn3.move(280, 90)
         
-        # testBtn.clicked.connect(self.openPopup)
-        testBtn.clicked.connect(self.hoga_test)
-        testBtn2.clicked.connect(self.DisConnectRealData)
-        testBtn3.clicked.connect(self.openPopup)
+        # testBtn = QPushButton("test", self)
+        # testBtn2 = QPushButton("실시간 해제", self)
+        # testBtn3 = QPushButton("popup test", self)
+        # testBtn.move(280, 20)
+        # testBtn2.move(280, 60)
+        # testBtn3.move(280, 90)
+        # testBtn.clicked.connect(self.hoga_test)
+        # testBtn2.clicked.connect(self.DisConnectRealData)
+        # testBtn3.clicked.connect(self.openPopup)
         
         
         self.code_edit.textChanged.connect(self.typing) #텍스트 입력하는 동시에 이벤트 발생
@@ -106,28 +130,38 @@ class MyWin(QMainWindow):
         
     def pressEnter(self):
         inputText = self.code_edit.text().upper()
-        toFind = [item for item in self.needSelectData if item['name'] == inputText][0]
+        toFind = [item for item in self.needSelectData if item['name'] == inputText][0] if len([item for item in self.needSelectData if item['name'] == inputText]) > 0 else False
         if toFind :
             self.stockCode = toFind['code']
             self.stockName = toFind['name']
-            self.searchBtn_clicked()
-        # print("enter event", self.needSelectData)
-        # if(len(self.needSelectData) > 1):
-        #     self.openPopup()
+            if len(self.stockCode) > 0:
+                code = self.stockCode
+                self.requestData("opt10001", "종목코드", code, "0101")
+                self.hoga_test()
         
         #CommConnect(사용자 호출) -> 로그인창 출력 -> OnEventConnect(이벤트 발생)
     def searchBtn_clicked(self):
-        if len(self.stockCode) > 0:
-            code = self.stockCode
-            self.text_edit.append("조회 종목코드 : " + code)
-        
-            self.requestData("opt10001", "종목코드", code, "0101")
-            # self.DisConnectRealData()
+        inputText = self.code_edit.text().upper()
+        toFind = [item for item in self.needSelectData if item['name'] == inputText][0] if len([item for item in self.needSelectData if item['name'] == inputText]) > 0 else False
+        if toFind :
+            self.pressEnter()
+        else :
+            self.text_edit.append("정확한 종목명을 입력하여 조회해주세요.")
     
     def hoga_test(self):
         code = self.stockCode
-        # result = self.requestData("opt10004", "종목코드", code, "0111")
-        self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
+        current_time = datetime.datetime.now()
+        hourMin = int(current_time.strftime("%H%M"))
+        
+        if hourMin < 1530 and hourMin >= 900:
+            self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
+            self.openPopup()
+        elif hourMin > 0 and hourMin < 900:
+            self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
+            self.requestData("opt10004", "종목코드", code, "0111")
+        else :
+            print("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
+            self.requestData("opt10004", "종목코드", code, "0111")
         # 41:매도호가1 61:매도호가수량1 81:매도호가직전대비1;51:매수호가1;71:매수호가수량1;91:매수호가직전대비1
         
     def loginEvent(self):
@@ -136,7 +170,6 @@ class MyWin(QMainWindow):
         
     def loginResult(self, err_code):
         errCodes = {"0" : "로그인 성공", "101" : "정보교환 실패", "102" : "서버접속 실패", "103" : "버전처리 실패"}
-        # self.text_edit.append(errCodes[str(err_code)])
         self.statusBar().showMessage(errCodes[str(err_code)])
             
     def received_msg(self, screenNo, rqName, trCode, msg):
@@ -152,44 +185,57 @@ class MyWin(QMainWindow):
     def receive_trdata(self, screenNo, rqName, trCode, recordName, preNext):
         #복수데이터의 경우 idx가 항목 순서이다.
         nCnt = self.ocx.dynamicCall("GetRepeatCnt(QString, QString)", trCode, rqName)
-        print("nCnt : ", nCnt)
         # for i in range(0, nCnt):
         if rqName == "opt10001_req":
             name = self.getCommData(trCode, rqName, "종목명")
-            self.text_edit.append("종목명 :" + name.strip())
+            self.text_edit.append(f"종목명 : {name}({self.stockCode})")
             # volume = self.getCommData(trCode, rqName, "거래량")
             # self.text_edit.append("거래량 :" + volume.strip())
         else :
             outputParams = ["호가잔량기준시간",
-                            "매도10차선잔량", "매도10차선호가",
-                            "매도9차선잔량", "매도9차선호가",
-                            "매도8차선잔량", "매도8차선호가",
-                            "매도7차선잔량", "매도7차선호가",
-                            "매도6우선잔량", "매도6차선호가",
-                            "매도5차선잔량", "매도5차선호가",
-                            "매도4차선잔량", "매도4차선호가",
-                            "매도3차선잔량", "매도3차선호가",
-                            "매도2차선잔량", "매도2차선호가",
-                            "매도최우선잔량", "매도최우선호가",
+                            "매도10차선잔량", "매도10차선호가","매도9차선잔량", "매도9차선호가","매도8차선잔량", "매도8차선호가","매도7차선잔량", "매도7차선호가","매도6우선잔량", "매도6차선호가",
+                            "매도5차선잔량", "매도5차선호가","매도4차선잔량", "매도4차선호가","매도3차선잔량", "매도3차선호가","매도2차선잔량", "매도2차선호가","매도최우선잔량", "매도최우선호가",
                             
-                            "매수최우선잔량", "매수최우선호가",
-                            "매수2차선잔량", "매수2차선호가",
-                            "매수3차선잔량", "매수3차선호가",
-                            "매수4차선잔량", "매수4차선호가",
-                            "매수5차선잔량", "매수5차선호가",
-                            "매수6우선잔량", "매수6우선호가",
-                            "매수7차선잔량", "매수7차선호가",
-                            "매수8차선잔량", "매수8차선호가",
-                            "매수9차선잔량", "매수9차선호가",
-                            "매수10차선잔량", "매수10차선호가",
+                            "매수최우선잔량", "매수최우선호가","매수2차선잔량", "매수2차선호가","매수3차선잔량", "매수3차선호가","매수4차선잔량", "매수4차선호가","매수5차선잔량", "매수5차선호가",
+                            "매수6우선잔량", "매수6우선호가","매수7차선잔량", "매수7차선호가","매수8차선잔량", "매수8차선호가","매수9차선잔량", "매수9차선호가","매수10차선잔량", "매수10차선호가",
                             
-                            "총매도잔량", "총매수잔량",
-                            "시간외매도잔량","시간외매수잔량"
+                            "총매도잔량", "총매수잔량","시간외매도잔량","시간외매수잔량"
                             ]
+            convertForm = {
+                "매도10차선잔량":"매도호가수량10","매도10차선호가":"매도호가10",
+                "매도9차선잔량":"매도호가수량9","매도9차선호가":"매도호가9",
+                "매도8차선잔량":"매도호가수량8","매도8차선호가":"매도호가8",
+                "매도7차선잔량":"매도호가수량7","매도7차선호가":"매도호가7",
+                "매도6우선잔량":"매도호가수량6","매도6차선호가":"매도호가6",
+                "매도5차선잔량":"매도호가수량5","매도5차선호가":"매도호가5",
+                "매도4차선잔량":"매도호가수량4","매도4차선호가":"매도호가4",
+                "매도3차선잔량":"매도호가수량3","매도3차선호가":"매도호가3",
+                "매도2차선잔량":"매도호가수량2","매도2차선호가":"매도호가2",
+                "매도최우선잔량":"매도호가수량1","매도최우선호가":"매도호가1",
+                
+                "매수최우선잔량":"매수호가수량1","매수최우선호가":"매수호가1",
+                "매수2차선잔량":"매수호가수량2","매수2차선호가":"매수호가2",
+                "매수3차선잔량":"매수호가수량3","매수3차선호가":"매수호가3",
+                "매수4차선잔량":"매수호가수량4","매수4차선호가":"매수호가4",
+                "매수5차선잔량":"매수호가수량5","매수5차선호가":"매수호가5",
+                "매수6우선잔량":"매수호가수량6","매수6우선호가":"매수호가6",
+                "매수7차선잔량":"매수호가수량7","매수7차선호가":"매수호가7",
+                "매수8차선잔량":"매수호가수량8","매수8차선호가":"매수호가8",
+                "매수9차선잔량":"매수호가수량9","매수9차선호가":"매수호가9",
+                "매수10차선잔량":"매수호가수량10","매수10차선호가":"매수호가10",
+            }
+            """
+                self.hoga_dict[key] = result
+            """
             for item in outputParams :
-                a = self.getCommData(trCode, rqName, item)
+                result = self.getCommData(trCode, rqName, item)
                 #호가잔량기준시간 : hhMMss
-                print(item + " : " + a)
+                if convertForm.get(item) is not None :
+                    key = convertForm[item]
+                    self.hoga_dict[key] = result.strip()
+            
+            self.openPopup()
+            self.update_hoga()
       
     def getCommData(self, trCode, recordName, itemNm, idx = 0):
         return self.ocx.dynamicCall("GetCommData(QString, QString, int, QString)", trCode, recordName, idx, itemNm)
@@ -303,6 +349,12 @@ class MyWin(QMainWindow):
     
     def receiveDataFromChild(self, data):
         print(data)
+    
+    # 창 종료이벤트
+    def closeEvent(self, event):
+        if hasattr(self, "newWindow"): # self에 팝업변수 존재 체크
+            self.newWindow.close()
+        event.accept() #프로그램 종료 . 이벤트 회수?
 
 class NewWindow(QWidget):
     # def __init__(self, parent: QWidget | None = ..., flags: WindowFlags | WindowType = ...) -> None:
@@ -321,6 +373,7 @@ class NewWindow(QWidget):
         self.buyChanges = []
         self.sPs = []
         self.bPs = []
+        self.mode = "price"
         
         for i in range(10, 0, -1):
             v = i
@@ -333,17 +386,20 @@ class NewWindow(QWidget):
             self.buyPrices.append(f"매수호가{v}")
             self.buyAmts.append(f"매수호가수량{v}")
             self.buyChanges.append(f"매수직전대비{v}")
-        
+            
     def initUI(self, parent_data):
         self.parent_data = parent_data
-        self.setWindowTitle("popup")
-        self.setGeometry(100,100,500,700)
+        self.setWindowTitle("호가창")
+        self.setGeometry(620,300,300,660)
+        #self.setGeometry(300,300,300,200)
         self.c_hoga_dict = {}
         
-        # sendTestBtn = QPushButton("callback test", self)
-        # sendTestBtn.setGeometry(10, 10, 100, 30)
+        self.changeModeBtn = QPushButton("수량으로 보기", self)
+        self.changeModeBtn.setGeometry(100, 615, 100, 30)
+        self.changeModeBtn.clicked.connect(self.changeMode)
+        
         # sendTestBtn.move(20,20)
-        # sendTestBtn.clicked.connect(self.testSend)
+        
         # print(parent_data)
 
         #호가테이블생성
@@ -360,6 +416,9 @@ class NewWindow(QWidget):
         self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.4))
         self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
         self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.4)) 
+        
+        #가로스크롤바 제거
+        self.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         
         # price 
         for i in range(20):
@@ -419,59 +478,110 @@ class NewWindow(QWidget):
             pbar.setFormat(str(quantity))
             pbar.setValue(quantity)
             
+    def changeMode(self):
+        btnTxt = self.changeModeBtn.text()
+        print(f"test change : {btnTxt}")
+        if btnTxt == "수량으로 보기" : 
+            btnTxt = "가격으로 보기"
+            self.mode = "amount"
+        else :
+            btnTxt = "수량으로 보기"
+            self.mode = "price"
+        print(f"현재모드 {self.mode}")
+        self.changeModeBtn.setText(btnTxt)
+        self.updateTable()
+        
+        
     def on_data_changed(self, new_data):
         if type(new_data) is dict:
             self.c_hoga_dict = new_data
             # print(f"부모창 값 변경 테스트 : {self.c_hoga_dict}")
+            self.updateTable()
             
-            #수량 최대값 구하기용 리스트 제작
-            for i in range(10):
-                self.sPs.append(int(new_data[self.sellAmts[i]]))
-                self.bPs.append(int(new_data[self.buyAmts[i]]))
-                
-            sMax = max(self.sPs)
-            bMax = max(self.bPs)
-            realMax = sMax if sMax > bMax else bMax
+    def updateTable(self):
+        #수량 최대값 구하기용 리스트 제작
+        for i in range(10):
+            self.sPs.append(int(self.c_hoga_dict[self.sellAmts[i]]))
+            self.bPs.append(int(self.c_hoga_dict[self.buyAmts[i]]))
             
-            for i in range(10):
-                # print(f"{new_data[self.sellPrices[i]]} {new_data[self.sellAmts[i]]} {new_data[self.sellChanges[i]]}")
-                # print(f"{new_data[self.buyPrices[i]]} {new_data[self.buyAmts[i]]} {new_data[self.buyChanges[i]]}")
-                
-                #가격 업데이트
-                # item = QTableWidgetItem(format(price, ","))
-                purePrice = int(re.sub(r'[+-]', '', new_data[self.sellPrices[i]]))
-                sP = self.tableWidget.item(i, 1)
-                sP.setText(format(purePrice, ","))
-                sQ = self.tableWidget.cellWidget(i, 0)
-                sQBar = sQ.findChild(QProgressBar)
-                calToWon = format(purePrice * int(new_data[self.sellAmts[i]]), ",")
-                
-                if isinstance(sQBar, QProgressBar):
-                    sQBar.setRange(0, realMax)
-                    # sQBar.setFormat(new_data[self.sellAmts[i]])
-                    sQBar.setFormat(calToWon)
-                    sQBar.setValue(int(new_data[self.sellAmts[i]]))
-                
-            for i in range(10,20):
-                idx = i - 10
-                purePrice = int(re.sub(r'[+-]', '', new_data[self.buyPrices[idx]]))
-                bP = self.tableWidget.item(i, 1)
-                bP.setText(format(purePrice, ","))
-                bQ = self.tableWidget.cellWidget(i, 2)
-                bQBar = bQ.findChild(QProgressBar)
-                calToWon = format(purePrice * int(new_data[self.buyAmts[idx]]), ",")
-                
-                if isinstance(bQBar, QProgressBar):
-                    bQBar.setRange(0, realMax)
-                    # bQBar.setFormat(new_data[self.buyAmts[idx]])
-                    bQBar.setFormat(calToWon)
-                    bQBar.setValue(int(new_data[self.buyAmts[idx]]))
-    
+        sMax = max(self.sPs)
+        bMax = max(self.bPs)
+        realMax = sMax if sMax > bMax else bMax
+        
+        #update 매도가격과 호가
+        for i in range(10):
+            # print(f"{new_data[self.sellPrices[i]]} {new_data[self.sellAmts[i]]} {new_data[self.sellChanges[i]]}")
+            # print(f"{new_data[self.buyPrices[i]]} {new_data[self.buyAmts[i]]} {new_data[self.buyChanges[i]]}")
+            
+            #가격 업데이트
+            # item = QTableWidgetItem(format(price, ","))
+            purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.sellPrices[i]]))
+            sAmt = int(self.c_hoga_dict[self.sellAmts[i]])
+            sP = self.tableWidget.item(i, 1)
+            sP.setText(format(purePrice, ","))
+            sQ = self.tableWidget.cellWidget(i, 0)
+            sQBar = sQ.findChild(QProgressBar)
+            calToWon = purePrice * int(self.c_hoga_dict[self.sellAmts[i]])
+            wonTxt = str(calToWon) if not isinstance(self.print10T(calToWon), str) else self.print10T(calToWon)
+            calToWon = format(purePrice * sAmt, ",")
+            
+            if isinstance(sQBar, QProgressBar):
+                sQBar.setRange(0, realMax)
+                # sQBar.setFormat(new_data[self.sellAmts[i]])
+                if self.mode == "price" :
+                    sQBar.setFormat(wonTxt)
+                else : sQBar.setFormat(format(sAmt, ","))
+                sQBar.setValue(sAmt)
+        
+        #update 매수가격과 호가
+        for i in range(10,20):
+            idx = i - 10
+            purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.buyPrices[idx]]))
+            bP = self.tableWidget.item(i, 1)
+            bP.setText(format(purePrice, ","))
+            bQ = self.tableWidget.cellWidget(i, 2)
+            bQBar = bQ.findChild(QProgressBar)
+            bAmt = int(self.c_hoga_dict[self.buyAmts[idx]])
+            
+            calToWon = purePrice * bAmt
+            wonTxt =  str(calToWon) if not isinstance(self.print10T(calToWon), str) else self.print10T(calToWon)
+            calToWon = format(purePrice * bAmt, ",")
+            
+            if isinstance(bQBar, QProgressBar):
+                bQBar.setRange(0, realMax)
+                # bQBar.setFormat(new_data[self.buyAmts[idx]])
+                if self.mode == "price" :
+                    bQBar.setFormat(wonTxt)
+                else : bQBar.setFormat(format(bAmt, ","))
+                bQBar.setValue(bAmt)
+    def print10T(self, num):
+        self.number = num
+        if not isinstance(num, int) :
+            if isinstance(num, str) :
+                self.number = int(num)
+            else : self.number = 0
+            
+        result = ""
+        to10Thousand = self.number / 10000
+        if num < 10000 : return str(self.number) + "원"
+        elif to10Thousand >= 10000 :
+            int_part = int(to10Thousand / 10000)
+            fractional_part = str((to10Thousand / 10000) - int_part).split('.')[1][0:4]
+            
+            result = str(int_part) +"억" + str(fractional_part) +"만원"
+        else :
+            result = str(int(to10Thousand)) + "만원"
+        return result
+        
+        
     def testSend(self):
         child_data = "is going from child"
         print(self.parent_data)
         # self.parent.receiveDataFromChild(child_data)
         # self.close() #창 닫기
+    
+    def closeEvent(self, event):
+        self.parent.DisConnectRealData()
         
 def main():
     app = QApplication(sys.argv)
@@ -479,7 +589,6 @@ def main():
     window.show()
     # app.exec_()
     sys.exit(app.exec_())
-    
-    
+
 if __name__ == "__main__":  
     main()
