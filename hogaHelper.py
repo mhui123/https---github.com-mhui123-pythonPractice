@@ -44,6 +44,13 @@ class MyWin(QMainWindow):
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
         self.stockName = ""
         self.stockCode = ""
+        self.stockMaxPrice = 0
+        self.stockMinPrice = 0
+        self.nowP = 0 #현재가
+        self.nowTAmt = 0 #거래량
+        self.nowChangePer = 0 #등락률
+        self.nowChangePrice = 0 #전일대비
+        
         self.needSelectData = ""
         self.selectedData = ""
         self.addedCnt = 0
@@ -179,6 +186,7 @@ class MyWin(QMainWindow):
         
         if hourMin < 1530 and hourMin >= 900:
             self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
+            # self.requestData("opt10004", "종목코드", code, "0111")
             self.openPopup()
         elif hourMin > 0 and hourMin < 900:
             self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
@@ -204,6 +212,12 @@ class MyWin(QMainWindow):
         # for i in range(0, nCnt):
         if rqName == "opt10001_req":
             name = self.getCommData(trCode, rqName, "종목명")
+            self.stockMaxPrice = self.getCommData(trCode, rqName, "상한가").strip()
+            self.stockMinPrice = self.getCommData(trCode, rqName, "하한가").strip()
+            self.nowP = self.getCommData(trCode, rqName, "현재가").strip()
+            self.nowTAmt = self.getCommData(trCode, rqName, "거래량").strip()
+            self.nowChangePer = self.getCommData(trCode, rqName, "등락율").strip()
+            self.nowChangePrice = self.getCommData(trCode, rqName, "전일대비").strip()
             self.text_edit.append(f"종목명 : {name.strip()}({self.stockCode})")
             # volume = self.getCommData(trCode, rqName, "거래량")
             # self.text_edit.append("거래량 :" + volume.strip())
@@ -310,7 +324,7 @@ class MyWin(QMainWindow):
             todayStart = self.GetCommRealData(code, 16)
             todayHigh = self.GetCommRealData(code, 17)
             todayLow = self.GetCommRealData(code, 18)
-            tradeAmt = self.GetCommRealData(code, 15)
+            tradeAmt = self.GetCommRealData(code, 15) #+는 매수체결 -는 매도체결
             
             nowPrice = self.GetCommRealData(code, 10)
             accAmt = self.GetCommRealData(code, 13)
@@ -419,32 +433,64 @@ class NewWindow(QWidget):
     def initUI(self, parent_data):
         self.parent_data = parent_data
         self.setWindowTitle("호가창")
-        self.setGeometry(620,300,300,660)
+        self.setGeometry(620,300,300,760)
         #self.setGeometry(300,300,300,200)
         self.c_hoga_dict = {}
         
         self.changeModeBtn = QPushButton("수량으로 보기", self)
-        self.changeModeBtn.setGeometry(100, 615, 100, 30)
+        self.changeModeBtn.setGeometry(100, 675, 100, 30)
         self.changeModeBtn.clicked.connect(self.changeMode)
         
         # sendTestBtn.move(20,20)
         
         # print(parent_data)
-
-        #호가테이블생성
+        #정보테이블 생성
+        self.infoTable = QTableWidget(self)
+        self.infoTable.resize(290, 100)
+        self.infoTable.setColumnCount(2) # 2열
+        self.infoTable.setRowCount(3) # 3행
         
+        """
+        self.nowP = 0 #현재가
+        self.nowTAmt = 0 #거래량
+        self.nowChangePer = 0 #등락률
+        self.nowChangePrice = 0 #전일대비
+        """
+        item = QTableWidgetItem(self.parent.stockName)
+        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+        self.infoTable.setItem(0, 0, item)
+        item = QTableWidgetItem(f"{int(self.parent.nowP)}")
+        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+        self.infoTable.setItem(1, 0, item)
+        item = QTableWidgetItem(f"{self.parent.nowChangePrice} ({self.parent.nowChangePer})")
+        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+        self.infoTable.setItem(0, 1, item)
+        item = QTableWidgetItem(f"{self.parent.nowTAmt}")
+        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+        self.infoTable.setItem(1, 1, item)
+        
+        self.infoTable.verticalHeader().setVisible(False)
+        self.infoTable.horizontalHeader().setVisible(False)
+        self.infoTable.setColumnWidth(0, int(self.infoTable.width() * 0.5))
+        self.infoTable.setColumnWidth(1, int(self.infoTable.width() * 0.5))
+        self.infoTable.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        
+        #호가테이블생성
         self.tableWidget = QTableWidget(self)
+        self.tableWidget.move(0,60)
         self.tableWidget.resize(290, 620)
-        self.tableWidget.setColumnCount(3) # 3열
+        self.tableWidget.setColumnCount(5) # 3열
         self.tableWidget.setRowCount(20) # 20행
         
         self.tableWidget.verticalHeader().setVisible(False)
         self.tableWidget.horizontalHeader().setVisible(False)
 
         #self.tableWidget.setAlternatingRowColors(True)
-        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.4))
+        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
         self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.4)) 
+        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))  
         
         #가로스크롤바 제거
         self.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
@@ -454,11 +500,12 @@ class NewWindow(QWidget):
             price = 0
             item = QTableWidgetItem(format(price, ","))
             item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-            self.tableWidget.setItem(i, 1, item)
+            self.tableWidget.setItem(i, 2, item)
 
         # quantity
         # asks
         for i in range(10):
+            self.tableWidget.setSpan(i, 0, 1, 2)
             quantity = 0
 
             widget = QWidget()
@@ -475,7 +522,7 @@ class NewWindow(QWidget):
             layout.setAlignment(Qt.AlignVCenter)
             layout.setContentsMargins(0, 0, 0, 0)
             widget.setLayout(layout)
-            self.tableWidget.setCellWidget(i, 0, widget)
+            self.tableWidget.setCellWidget(i, 1, widget)
 
             # set data 
             pbar.setRange(0, 100000000)
@@ -485,7 +532,7 @@ class NewWindow(QWidget):
         # bids
         for i in range(10, 20):
             quantity = 0
-
+            self.tableWidget.setSpan(i, 3, 1, 2)
             widget = QWidget()
             layout = QVBoxLayout(widget)
             pbar = QProgressBar()
@@ -500,7 +547,7 @@ class NewWindow(QWidget):
             layout.setAlignment(Qt.AlignVCenter)
             layout.setContentsMargins(0, 0, 0, 0)
             widget.setLayout(layout)
-            self.tableWidget.setCellWidget(i, 2, widget)
+            self.tableWidget.setCellWidget(i, 3, widget)
 
             # set data 
             pbar.setRange(0, 100000000)
@@ -530,9 +577,26 @@ class NewWindow(QWidget):
         if type(data) is dict :
             key = None
             dataStr = ""
-            for key, value in data.items():
-                dataStr += f"{key} : {value}"
-            print(dataStr)
+            # for key, value in data.items():
+            #     dataStr += f"{key} : {value}\t"
+            if len(data) > 0:
+                pStart = data['todayStart']
+                pHigh = data['todayHigh']
+                pLow = data['todayLow']
+                pChange = data['priceChange']
+                nowPrice = format(int(data['nowPrice']),",")
+                tAmt = format(int(data['accAmt']),",")
+                signAmt = data['tradeAmt']
+                movePercent = data['movePercent']
+                dataStr = f"시가:{pStart}\t고가:{pHigh}\t저가:{pLow}\t등락:{pChange}\t거래량:{tAmt}\t 체결량:{signAmt}"
+                # print(dataStr)
+                # item = QTableWidgetItem(f"{self.parent.nowChangePrice} ({self.parent.nowChangePer})")
+                # item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+                # self.infoTable.setItem(0, 1, item)
+                
+                self.infoTable.item(0, 1).setText(f"{pChange}({movePercent}%)")
+                self.infoTable.item(1, 0).setText(f"{nowPrice}")
+                self.infoTable.item(1, 1).setText(f"{tAmt}")
             
     def updateTable(self):
         #수량 최대값 구하기용 리스트 제작
@@ -553,9 +617,9 @@ class NewWindow(QWidget):
             # item = QTableWidgetItem(format(price, ","))
             purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.sellPrices[i]]))
             sAmt = int(self.c_hoga_dict[self.sellAmts[i]])
-            sP = self.tableWidget.item(i, 1)
+            sP = self.tableWidget.item(i, 2)
             sP.setText(format(purePrice, ","))
-            sQ = self.tableWidget.cellWidget(i, 0)
+            sQ = self.tableWidget.cellWidget(i, 1)
             sQBar = sQ.findChild(QProgressBar)
             calToWon = purePrice * int(self.c_hoga_dict[self.sellAmts[i]])
             wonTxt = str(calToWon) if not isinstance(self.print10T(calToWon), str) else self.print10T(calToWon)
@@ -568,14 +632,28 @@ class NewWindow(QWidget):
                     sQBar.setFormat(wonTxt)
                 else : sQBar.setFormat(format(sAmt, ","))
                 sQBar.setValue(sAmt)
-        
+            
+            #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
+            key = f"매도직전대비{i+1}"
+            sQChange = self.c_hoga_dict[key]
+            check = int(re.sub(r'[+-]', '', sQChange))
+            if check != 0:
+                label = QLabel(sQChange, self)
+                label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
+                self.tableWidget.setCellWidget(9 - i, 0, label)
+            else :
+                label = QLabel("", self)
+                label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
+                self.tableWidget.setCellWidget(9 - i, 0, label)
         #update 매수가격과 호가
         for i in range(10,20):
             idx = i - 10
             purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.buyPrices[idx]]))
-            bP = self.tableWidget.item(i, 1)
+            bP = self.tableWidget.item(i, 2)
             bP.setText(format(purePrice, ","))
-            bQ = self.tableWidget.cellWidget(i, 2)
+            bQ = self.tableWidget.cellWidget(i, 3)
             bQBar = bQ.findChild(QProgressBar)
             bAmt = int(self.c_hoga_dict[self.buyAmts[idx]])
             
@@ -590,6 +668,20 @@ class NewWindow(QWidget):
                     bQBar.setFormat(wonTxt)
                 else : bQBar.setFormat(format(bAmt, ","))
                 bQBar.setValue(bAmt)
+            #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
+            key = f"매수직전대비{idx +1}"
+            bQChange = self.c_hoga_dict[key]
+            check = int(re.sub(r'[+-]', '', bQChange))
+            if check != 0:
+                label = QLabel(bQChange, self)
+                label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
+                self.tableWidget.setCellWidget(i, 4, label)
+            else :
+                label = QLabel("", self)
+                label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
+                self.tableWidget.setCellWidget(i, 4, label)
     def print10T(self, num):
         self.number = num
         if not isinstance(num, int) :
