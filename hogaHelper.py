@@ -74,15 +74,7 @@ class MyWin(QMainWindow):
         # self.code_edit.setText("039490") #종목코드 입력란
         searchBtn = QPushButton("조회", self)
         
-        # testBtn = QPushButton("test", self)
-        # testBtn2 = QPushButton("실시간 해제", self)
-        # testBtn3 = QPushButton("popup test", self)
-        # testBtn.move(280, 20)
-        # testBtn2.move(280, 60)
-        # testBtn3.move(280, 90)
-        # testBtn.clicked.connect(self.hoga_test)
-        # testBtn2.clicked.connect(self.DisConnectRealData)
-        # testBtn3.clicked.connect(self.openPopup)
+
         
         
         self.code_edit.textChanged.connect(self.typing) #텍스트 입력하는 동시에 이벤트 발생
@@ -349,6 +341,7 @@ class MyWin(QMainWindow):
             fInfos = f" {self.stockName} 현재가:{nowPrice} 누적거래량 {accAmt} 누적거래대금 {accPrice} 가격변동:{priceChange} 등락률:{movePercent}"
             # print(fString, fInfos)
         if real_type == "주식우선호가":
+            #호가틱이 변동될 때 발생하는 이벤트.
             now = datetime.datetime.now()
             ask01 =  self.GetCommRealData(code, 27)         
             bid01 =  self.GetCommRealData(code, 28)
@@ -395,6 +388,9 @@ class MyWin(QMainWindow):
     # 창 종료이벤트
     def closeEvent(self, event):
         if hasattr(self, "newWindow"): # self에 팝업변수 존재 체크
+            if isinstance(self.newWindow, QWidget):
+                if hasattr(self.newWindow, "hogaOrderwin"): # self에 팝업변수 존재 체크
+                    self.newWindow.hogaOrderwin.close()
             self.newWindow.close()
         event.accept() #프로그램 종료 . 이벤트 회수?
 
@@ -417,6 +413,7 @@ class NewWindow(QWidget):
         self.sPs = []
         self.bPs = []
         self.mode = "price"
+        self.hoga_interval = 0
         
         for i in range(10, 0, -1):
             v = i
@@ -494,14 +491,14 @@ class NewWindow(QWidget):
         
         #가로스크롤바 제거
         self.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        
+        self.tableWidget.itemClicked.connect(self.handle_tbItem_click) #price column만 클릭했을때 이벤트 동작
+        self.tableWidget.cellClicked.connect(self.cellClickEvent)
         # price 
         for i in range(20):
             price = 0
             item = QTableWidgetItem(format(price, ","))
             item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
             self.tableWidget.setItem(i, 2, item)
-
         # quantity
         # asks
         for i in range(10):
@@ -597,6 +594,29 @@ class NewWindow(QWidget):
                 self.infoTable.item(0, 1).setText(f"{pChange}({movePercent}%)")
                 self.infoTable.item(1, 0).setText(f"{nowPrice}")
                 self.infoTable.item(1, 1).setText(f"{tAmt}")
+                
+    def handle_tbItem_click(self, item):
+        row = item.row()
+        col = item.column()
+        text = ""
+        if col == 2 :
+            text = int(re.sub(r'[,]', '', item.text()))
+            toPassData = {"hoga_interval" : self.hoga_interval, "price" : text}
+            self.hogaOrderwin = HogaOrderWin(self, toPassData)
+            self.hogaOrderwin.show()
+        print(f"table click : {row} {col} {text}")
+        
+    def cellClickEvent(self, row,col):
+        if col != 2 :
+            print(f"{row} {col}")
+            if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
+                self.hogaOrderwin.close()
+        
+    def mousePressEvent(self, event):
+        clicked_pos = event.pos()
+        print(f"x : {clicked_pos.x()} {clicked_pos.y()}")
+        if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
+            self.hogaOrderwin.close()
             
     def updateTable(self):
         #수량 최대값 구하기용 리스트 제작
@@ -608,6 +628,7 @@ class NewWindow(QWidget):
         bMax = max(self.bPs)
         realMax = sMax if sMax > bMax else bMax
         
+        hoga_interval_chk = 0
         #update 매도가격과 호가
         for i in range(10):
             # print(f"{new_data[self.sellPrices[i]]} {new_data[self.sellAmts[i]]} {new_data[self.sellChanges[i]]}")
@@ -624,6 +645,11 @@ class NewWindow(QWidget):
             calToWon = purePrice * int(self.c_hoga_dict[self.sellAmts[i]])
             wonTxt = str(calToWon) if not isinstance(self.print10T(calToWon), str) else self.print10T(calToWon)
             calToWon = format(purePrice * sAmt, ",")
+            
+            if self.hoga_interval == 0 and hoga_interval_chk == 0 :
+                hoga_interval_chk = purePrice
+            elif self.hoga_interval == 0 and hoga_interval_chk > 0 :
+                self.hoga_interval = hoga_interval_chk - purePrice
             
             if isinstance(sQBar, QProgressBar):
                 sQBar.setRange(0, realMax)
@@ -682,6 +708,7 @@ class NewWindow(QWidget):
                 label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
                 self.tableWidget.setCellWidget(i, 4, label)
+
     def print10T(self, num):
         self.number = num
         if not isinstance(num, int) :
@@ -709,7 +736,71 @@ class NewWindow(QWidget):
         # self.close() #창 닫기
     
     def closeEvent(self, event):
+        if hasattr(self, "hogaOrderWin"): # self에 팝업변수 존재 체크
+            self.hogaOrderWin.close()
         self.parent.DisConnectRealData()
+        
+class HogaOrderWin(QWidget):
+    # def __init__(self, parent: QWidget | None = ..., flags: WindowFlags | WindowType = ...) -> None:
+    #     super().__init__(parent, flags)
+    def __init__(self, parent, parent_data):
+        super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
+        self.parent = parent
+        self.initUI(parent_data)
+            
+    def initUI(self, parent_data):
+        self.parent_data = parent_data
+        self.setWindowFlag(Qt.FramelessWindowHint)
+        self.setWindowTitle("호가주문")
+        
+        windowW = self.parent.width() + 5
+        windowH = int(self.parent.height() * 0.2)
+        parent_x = self.parent.x()
+        child_y = self.parent.y() + int(self.parent.height() / 2)
+        
+        self.setGeometry(parent_x, child_y, windowW, windowH)
+        print(f"parentData : {parent_data}")
+        
+        self.tableWidget = QTableWidget(self)
+        # self.tableWidget.move(0,60)
+        # self.tableWidget.resize(290, 620)
+        self.tableWidget.setColumnCount(5) # 3열
+        self.tableWidget.setRowCount(2) # 20행
+        
+        self.tableWidget.verticalHeader().setVisible(False)
+        self.tableWidget.horizontalHeader().setVisible(False)
+        self.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+
+        #self.tableWidget.setAlternatingRowColors(True)
+        
+        # self.resize(windowW, windowH)
+        self.tableWidget.resize(windowW, windowH)
+        
+        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))
+        
+        plusWidget = QWidget()
+        minusWidget = QWidget()
+        plusBtn = QPushButton("+", self)
+        minusBtn = QPushButton("-", self)
+        item = QTableWidgetItem(format(parent_data['price'],","))
+        self.tableWidget.setItem(1, 2, item)
+        self.tableWidget.setCellWidget(1, 3, plusBtn)
+        self.tableWidget.setCellWidget(1, 1, minusBtn)
+        
+        plusBtn.clicked.connect(self.btnClicked)
+        minusBtn.clicked.connect(self.btnClicked)
+        
+    def btnClicked(self, event):
+        print(f"btnClicked {event}")
+        
+        
+        # print(f"tableW : {self.tableWidget.width()} tableH : {self.tableWidget.height()}")
+        # print(f"windowW : {windowW} windowH : {windowH}")
+        # print(f"parentW : {self.parent.width()} H : {self.parent.height()}")
         
 def main():
     app = QApplication(sys.argv)
