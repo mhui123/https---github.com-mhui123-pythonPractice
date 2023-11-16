@@ -828,10 +828,6 @@ class NewWindow(QWidget):
             
             if isinstance(bQBar, QProgressBar):
                 bQBar.setRange(0, realMax)
-                # bQBar.setFormat(new_data[self.buyAmts[idx]])
-                # if self.mode == "price" :
-                #     bQBar.setFormat(wonTxt)
-                # else : bQBar.setFormat(format(bAmt, ","))
                 bQBar.setFormat(hogaV)
                 bQBar.setValue(bAmt)
             #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
@@ -892,7 +888,7 @@ class HogaOrderWin(QWidget):
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.setWindowTitle("호가주문")
         
-        windowW = self.parent.width() + 5
+        windowW = self.parent.width()
         windowH = int(self.parent.height() * 0.2)
         parent_x = self.parent.x()
         child_y = self.parent.y() + int(self.parent.height() / 2)
@@ -902,6 +898,9 @@ class HogaOrderWin(QWidget):
         self.hoga_interval = int(parent_data['hoga_interval'])
         self.order_hoga = int(parent_data['price'])
         self.purePw = ""
+        self.myUsableCash = 0
+        self.qty = 0
+        self.qtyMode = "amount"
         
         self.tableWidget = QTableWidget(self)
         self.tableWidget.setColumnCount(5) # 3열
@@ -914,19 +913,15 @@ class HogaOrderWin(QWidget):
         #self.tableWidget.setAlternatingRowColors(True)
         
         # self.resize(windowW, windowH)
-        self.tableWidget.resize(windowW, windowH)
-        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.05))
-        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.3))
-        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.05))
-        self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.move(0,50)
-        
         
         #계좌번호 비밀번호입력
         self.combo_box = QComboBox(self)
         self.inputPw = QLineEdit(self)
+        self.inputPw.setPlaceholderText("계좌비밀번호")
+        self.inputQty = QLineEdit(self)
+        self.inputQty.setPlaceholderText("수량")
         self.checkBtn = QPushButton("계좌조회", self)
+        
         # self.combo_box.move(10,10)
         # self.inputPw.move(100,10)
         # self.inputPw.resize(60, self.combo_box.height())
@@ -938,20 +933,22 @@ class HogaOrderWin(QWidget):
         for item in accounts :
             self.combo_box.addItem(item)
         self.combo_box.currentIndexChanged.connect(self.selectAccount)
+        self.inputQty.textChanged.connect(lambda: self.filtNumber(self.inputQty.text()))
         
         self.accountTable = QTableWidget(self)
         self.accountTable.setColumnCount(3) # 3열
-        self.accountTable.setRowCount(2) # 20행
+        self.accountTable.setRowCount(1) # 20행
         self.accountTable.setCellWidget(0,0, self.combo_box)
         self.accountTable.setCellWidget(0,1, self.inputPw)
         self.accountTable.setCellWidget(0,2, self.checkBtn)
-        self.accountTable.setColumnWidth(0, int(self.tableWidget.width() * 0.33))
-        self.accountTable.setColumnWidth(1, int(self.tableWidget.width() * 0.33))
-        self.accountTable.setColumnWidth(2, int(self.tableWidget.width() * 0.33))
+        self.accountTable.setStyleSheet("QTableWidget { border : none; gridline-color: white}") #테두리제거
         
         row_height = self.accountTable.rowHeight(0)
         row_cnt = self.accountTable.rowCount()
         self.accountTable.resize(windowW, row_height * row_cnt)
+        self.accountTable.setColumnWidth(0, int(self.accountTable.width() / 3))
+        self.accountTable.setColumnWidth(1, int(self.accountTable.width() / 3))
+        self.accountTable.setColumnWidth(2, int(self.accountTable.width() / 3))
         
         
         self.inputPw.textChanged.connect(self.maskingPw)
@@ -972,12 +969,64 @@ class HogaOrderWin(QWidget):
         self.tableWidget.setCellWidget(0, 1, minusBtn)
         self.tableWidget.setCellWidget(0, 0, buyBtn)
         self.tableWidget.setCellWidget(0, 4, sellBtn)
+        self.tableWidget.move(0,self.accountTable.height() + 5)
+        
+        row_height = self.tableWidget.rowHeight(0)
+        row_cnt = self.tableWidget.rowCount()
+        self.tableWidget.resize(windowW, row_height * row_cnt)
+        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))
+        
+        self.ordTable = QTableWidget(self)
+        self.ordTable.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.ordTable.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.ordTable.verticalHeader().setVisible(False)
+        self.ordTable.horizontalHeader().setVisible(False)
+        
+        layout = QHBoxLayout() #가로로 배열. QVBoxLayout() : 세로로 배열
+        self.changeModeCheckbox = QCheckBox(self)
+        self.chkBoxLabel = QLabel("금액으로", self)
+        self.changeModeCheckbox.stateChanged.connect(self.changeMode)
+        
+        layout.addWidget(self.changeModeCheckbox)
+        layout.addWidget(self.chkBoxLabel)
+        widget = QWidget()
+        widget.setLayout(layout)
+        self.ordTable.setColumnCount(2) # 3열
+        self.ordTable.setRowCount(3) # 20행
+        col_width = self.ordTable.columnWidth(0)
+        col_cnt = self.ordTable.columnCount()
+        row_height = self.ordTable.rowHeight(0)
+        row_cnt = self.ordTable.rowCount()
+        tbY = self.tableWidget.height() + self.accountTable.height() + 10
+        self.ordTable.setGeometry( 50, tbY, col_width * col_cnt , row_cnt * row_height)
+        self.ordTable.setCellWidget(0,0, self.inputQty)
+        self.ordTable.setCellWidget(0,1, widget)
+        
+        
+        print(f"{self.tableWidget.width()} =  {self.tableWidget.columnWidth(0)} {self.tableWidget.columnWidth(1)} {self.tableWidget.columnWidth(2)} {self.tableWidget.columnWidth(3)} {self.tableWidget.columnWidth(4)}")
+        print(f"{self.accountTable.width()} =  {self.accountTable.columnWidth(0)} {self.accountTable.columnWidth(1)} {self.accountTable.columnWidth(2)}")
         
         plusBtn.clicked.connect(self.btnClicked)
         minusBtn.clicked.connect(self.btnClicked)
         buyBtn.clicked.connect(self.callTradeEvent)
         sellBtn.clicked.connect(self.callTradeEvent)
+        
     
+    def changeMode(self, state):
+        # checkLabel = self.ordTable.cellWidget(0, 1).findChild(QLabel)
+        if state == 2: #checked
+            state = "checked"
+            self.inputQty.setPlaceholderText("금액")
+            self.qtyMode = "price"
+        else : #unchecked
+            state = "unchecked"
+            self.qtyMode = "amount"
+            self.inputQty.setPlaceholderText("수량")
+        
     def selectAccount(self, index):
         value = self.sender().currentText()
         print(f"selected index: {index} {value}")
@@ -1006,8 +1055,9 @@ class HogaOrderWin(QWidget):
         print(f"거래요청 버튼 : {sender.text()}")
         ordType = "신규매수" if sender.text() == "매수" else "신규매도"
         accountNo = self.combo_box.currentText()
-        ordQty = 0 #주문수량 입력받는 lineEdit 붙여야함(숫자만)
         ordPrice = int(re.sub(r'[^0-9]','',self.tableWidget.item(0,2).text())) # a = re.sub(r'[^0-9]','',a)
+        self.qty = self.inputQty.text()
+        ordQty = self.inputQty.text() if self.qtyMode == "amount" else int(self.inputQty.text() / ordPrice)
         purpose = "주문"
         data = {"purpose":purpose,"accountNo" : accountNo, "ordQty":ordQty, "ordPrice":ordPrice, "ordType":ordType}
         self.parent.passToMain(data)
@@ -1016,11 +1066,15 @@ class HogaOrderWin(QWidget):
         print(f"[주문창]passToMain {data}")
         self.parent.receiveDataFromChild(data)
     
+    def filtNumber(self, data):
+        print(f"filtNumber {data}")
+        data = re.sub(r'[^0-9]', '', data)
+        self.sender().setText(data)
+        
     def maskingPw(self):
+        # text = re.sub(r'\D', '', text)
         self.inputPw.textChanged.disconnect(self.maskingPw)
         text = self.inputPw.text()
-        
-        # text = re.sub(r'\D', '', text)
         text = re.sub(r'[^0-9*]', '', text)
         lastChar = text if len(self.purePw) == 0 else ( text[len(text) -1] if len(text) > 0 else "")
         if len(self.purePw) < len(text) :
@@ -1035,11 +1089,18 @@ class HogaOrderWin(QWidget):
         self.inputPw.textChanged.connect(self.maskingPw)
         
     def receiveTest(self, data):
-        print(f"조회테스트 : {data}\n{data['myUsableCash']}")
-        item = QTableWidgetItem("주문가능금액")
-        total = QTableWidgetItem(str(data['myUsableCash']))
-        self.accountTable.setItem(1, 0, item)
-        self.accountTable.setItem(1, 1, total)
+        self.myUsableCash = data['myUsableCash']
+        print(f"조회테스트 : {data}\n{data['myUsableCash']} self.myUsableCash : {self.myUsableCash}")
+        label = QLabel(f"주문가능금액 : {self.myUsableCash}")
+        self.ordTable.setCellWidget(1, 0, label)
+        self.ordTable.setSpan(1, 0, 1, 2)
+        
+        #최초로 한번 조회했으면 호가창과 메인창에도 주문가능금액과 비밀번호를 넘겨 보존하고 다음에 다시 주문창을 열었을때는 재조회 불필요하게 자동입력 후 disabled처리하면 좋을 듯.
+        
+        # item = QTableWidgetItem("주문가능금액")
+        # total = QTableWidgetItem(str(data['myUsableCash']))
+        # self.accountTable.setItem(1, 0, item)
+        # self.accountTable.setItem(1, 1, total)
         
 def main():
     app = QApplication(sys.argv)
