@@ -39,6 +39,7 @@ else :
 class MyWin(QMainWindow):
     dataChanged = pyqtSignal(QVariant)
     stockInfoChanged = pyqtSignal(QVariant)
+    accountInfoChanged = pyqtSignal(QVariant)
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -58,12 +59,19 @@ class MyWin(QMainWindow):
         self.hoga_dict = {}
         self.stock_info = {}
         self.loginPassed = False
+        self.accounts = None
+        self.selected_account = None
+        self.account_pw = None
+        
+        self.myCash = 0
+        self.myUsableCash = 0
         
         self.loginEvent()
         """ocx 이벤트구간"""
         self.ocx.OnReceiveTrData.connect(self.receive_trdata) #이벤트 처리
         self.ocx.OnReceiveMsg.connect(self.received_msg) #수신 메시지 처리
         self.ocx.OnReceiveRealData.connect(self._handler_real_data) #실시간 데이터 처리
+        self.ocx.OnReceiveChejanData.connect(self.receive_chejan)
         
         self.setWindowTitle("hogaHelper")
         self.setGeometry(300,300,300,200)
@@ -75,8 +83,6 @@ class MyWin(QMainWindow):
         searchBtn = QPushButton("조회", self)
         
 
-        
-        
         self.code_edit.textChanged.connect(self.typing) #텍스트 입력하는 동시에 이벤트 발생
         self.code_edit.returnPressed.connect(self.pressEnter) #엔터를 입력해야 인식하는 이벤트 returnPressed editingFinished
         # self.code_edit.returnPressed.connect(lambda: self.pressEnter()) #엔터이벤트 2
@@ -94,6 +100,10 @@ class MyWin(QMainWindow):
         layout = QVBoxLayout(self)
         layout.addWidget(self.code_edit)
         
+        # testBtn = QPushButton("test", self)
+        # testBtn.move(190, 120)
+        # testBtn.clicked.connect(self.cashTest)
+        
     def loginEvent(self):
         self.ocx.dynamicCall("CommConnect()")
         self.ocx.OnEventConnect.connect(self.loginResult)
@@ -103,7 +113,22 @@ class MyWin(QMainWindow):
         self.statusBar().showMessage(errCodes[str(err_code)])
         if errCodes[str(err_code)] == "로그인 성공":
             self.loginPassed = True
-    
+        account_num = self.ocx.dynamicCall("GetLoginInfo(QString)", "ACCNO")
+        self.accounts = []
+        accounts = account_num.split(';')
+        for item in accounts :
+            if len(item) > 0 :
+                self.accounts.append(item)
+
+        # self.accountInfo()
+        # self.ocx.KOA_Functions("ShowAccountWindow","")
+        # self.code_edit.append(f"계좌번호 : {account_num}")
+        
+    def accountInfo(self, accNo, accPw):
+        self.setInputValue("계좌번호", accNo)
+        self.setInputValue("비밀번호", accPw)
+        self.setInputValue("조회구분", 2) #2 : 일반조회, 3 : 추정조회
+        self.requestData("opw00001", "종목코드", '0', "0362")
     def update_data_test(self, newVal):
         self.testVal = newVal
         self.dataChanged.emit(QVariant(self.testVal))
@@ -111,6 +136,9 @@ class MyWin(QMainWindow):
     def update_hoga(self):
         self.dataChanged.emit(self.hoga_dict)
         self.stockInfoChanged.emit(self.stock_info)
+    def update_account_info(self):
+        toSend = {"myCash" : self.myCash, "myUsableCash" : self.myUsableCash}
+        self.accountInfoChanged.emit(toSend)
     
     def testBtn2Clicked(self):
         self.DisConnectRealData("0101")
@@ -179,23 +207,28 @@ class MyWin(QMainWindow):
         if hourMin < 1530 and hourMin >= 900:
             self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
             # self.requestData("opt10004", "종목코드", code, "0111")
-            self.openPopup()
+            # self.openPopup()
         elif hourMin > 0 and hourMin < 900:
             self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
-            self.requestData("opt10004", "종목코드", code, "0111")
+            # self.requestData("opt10004", "종목코드", code, "0111")
         else :
             print("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
-            self.requestData("opt10004", "종목코드", code, "0111")
+            # self.requestData("opt10004", "종목코드", code, "0111")
+        self.requestData("opt10004", "종목코드", code, "0111")
         # 41:매도호가1 61:매도호가수량1 81:매도호가직전대비1;51:매수호가1;71:매수호가수량1;91:매수호가직전대비1
             
     def received_msg(self, screenNo, rqName, trCode, msg):
         print("받아온 메세지 출력 :" + screenNo, rqName, trCode, msg)
     
+    def setInputValue(self, itemName, code):
+        self.ocx.dynamicCall("SetInputValue(QString, QString)", itemName, code)
     def requestData(self, trCode, itemNm, code, screenNo, isContinue = 0):
         isContinue = 2 if isContinue == "연속" else 0
         rqName = trCode+"_req"
         #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
-        self.ocx.dynamicCall("SetInputValue(QString, QString)", itemNm, code)
+        if len(code) > 0 :
+            # self.ocx.dynamicCall("SetInputValue(QString, QString)", itemNm, code)
+            self.setInputValue(itemNm, code)
         self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",rqName, trCode, isContinue, screenNo)
     
     def receive_trdata(self, screenNo, rqName, trCode, recordName, preNext):
@@ -213,6 +246,11 @@ class MyWin(QMainWindow):
             self.text_edit.append(f"종목명 : {name.strip()}({self.stockCode})")
             # volume = self.getCommData(trCode, rqName, "거래량")
             # self.text_edit.append("거래량 :" + volume.strip())
+        elif rqName == "opw00001_req":
+            self.myCash = int(self.getCommData(trCode, rqName, "예수금").strip())
+            self.myUsableCash = int(self.getCommData(trCode, rqName, "주문가능금액").strip())
+            print(f"예수금요청 예수금:{self.myCash} 주문가능:{self.myUsableCash}")
+            self.update_account_info()
         else :
             outputParams = ["호가잔량기준시간",
                             "매도10차선잔량", "매도10차선호가","매도9차선잔량", "매도9차선호가","매도8차선잔량", "매도8차선호가","매도7차선잔량", "매도7차선호가","매도6우선잔량", "매도6차선호가",
@@ -258,7 +296,76 @@ class MyWin(QMainWindow):
             
             self.openPopup()
             self.update_hoga()
-      
+    
+    def receive_chejan(self, data):
+        dealNo = self.ocx.dynamicCall("GetChejanData(QString)", 909)
+        dealAmt = self.ocx.dynamicCall("GetChejanData(QString)", 911)
+        dealPrice = self.ocx.dynamicCall("GetChejanData(QString)", 910)
+        print(f"체결결과 : {data}") #sGubun => 0: 접수 및 체결. 1 : 잔고변경. 4 : 파생잔고변경
+        """
+        "9201" : "계좌번호" 
+        "9203" : "주문번호" 
+        "9001" : "종목코드" 
+        "913" : "주문상태" 
+        "302" : "종목명" 
+        "900" : "주문수량" 
+        "901" : "주문가격" 
+        "902" : "미체결수량" 
+        "903" : "체결누계금액" 
+        "904" : "원주문번호" 
+        "905" : "주문구분" 
+        "906" : "매매구분" 
+        "907" : "매도수구분" 
+        "908" : "주문/체결시간" 
+        "909" : "체결번호" 
+        "910" : "체결가" 
+        "911" : "체결량" 
+        "10" : "현재가" 
+        "27" : "(최우선)매도호가" 
+        "28" : "(최우선)매수호가" 
+        "914" : "단위체결가" 
+        "915" : "단위체결량" 
+        "919" : "거부사유" 
+        "920" : "화면번호" 
+        "917" : "신용구분" 
+        "916" : "대출일" 
+        "930" : "보유수량" 
+        "931" : "매입단가" 
+        "932" : "총매입가" 
+        "933" : "주문가능수량" 
+        "945" : "당일순매수수량" 
+        "946" : "매도/매수구분" 
+        "950" : "당일총매도손일" 
+        "951" : "예수금"  (지원안함)
+        "307" : "기준가" 
+        "8019" : "손익율" 
+        "957" : "신용금액" 
+        "958" : "신용이자" 
+        "918" : "만기일" 
+        "990" : "당일실현손익(유가)" 
+        "991" : "당일실현손익률(유가)" 
+        "992" : "당일실현손익(신용)" 
+        "993" : "당일실현손익률(신용)" 
+        "397" : "파생상품거래단위" 
+        "305" : "상한가" 
+        "306" : "하한가"
+        """
+    
+    def sendOrder(self, rqName, accountNo, ordType, orderQty, orderPrice, hogaGubun, orgOrdNo = ""):
+        self.hogaGubun = None
+        orderTypes = {"신규매수":"1", "신규매도":"2", "매수취소":"3", "매도취소":"4", "매수정정":"5", "매도정정":"6"}
+        gubuns = {"지정가" : "00", "시장가": "03", "시간외" : "62"} #모의투자는 지정가와 시장가만 가능
+        
+        #시장가와 주문취소시 orderPrice = 0
+        if hogaGubun == None:
+            self.hogaGubun = gubuns['지정가']
+        self.screenNo = "4989" #키움주문
+        #호가창에서 주문가격과 수량을 호출해야 한다. 정정시에 orgOrdNo입력필요. 신규 = 공백
+        print(f"주문전 확인: {rqName}({self.screenNo}), {accountNo}, {orderTypes[ordType]}, {self.stockCode} {orderPrice}({orderQty}개) {self.hogaGubun} {orgOrdNo}")
+        self.ocx.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)"
+                             ,[rqName, self.screenNo, accountNo, orderTypes[ordType], self.stockCode, 1, orderPrice, self.hogaGubun, orgOrdNo])
+        #받아온 메세지 출력 :4989 sendOrder KOA_NORMAL_BUY_KP_ORD [RC4027] 모의투자 상/하한가 오류입니다.
+        
     def getCommData(self, trCode, recordName, itemNm, idx = 0):
         return self.ocx.dynamicCall("GetCommData(QString, QString, int, QString)", trCode, recordName, idx, itemNm)
     
@@ -378,12 +485,22 @@ class MyWin(QMainWindow):
         return stockName
     
     def openPopup(self):
-        toPassData = self.testVal
+        toPassData = {"account":self.accounts, "myCash":self.myCash, "myUsableCash" : self.myUsableCash}
         self.newWindow = NewWindow(self, toPassData)
         self.newWindow.show()
     
     def receiveDataFromChild(self, data):
-        print(data)
+        purpose = data['purpose']
+        print(f"main received data {data}")
+        if purpose == "계좌조회":
+            self.accountInfo(data['accountNo'], data['accountPw'])
+        elif purpose == "주문":
+            print(f"[주문테스트] {data}")
+            self.sendOrder("sendOrder", data['accountNo'], data['ordType'], data['ordQty'], data['ordPrice'], None)
+        
+        
+            
+        
     
     # 창 종료이벤트
     def closeEvent(self, event):
@@ -395,6 +512,7 @@ class MyWin(QMainWindow):
         event.accept() #프로그램 종료 . 이벤트 회수?
 
 class NewWindow(QWidget):
+    childSignal = pyqtSignal(QVariant)
     # def __init__(self, parent: QWidget | None = ..., flags: WindowFlags | WindowType = ...) -> None:
     #     super().__init__(parent, flags)
     def __init__(self, parent, parent_data):
@@ -403,6 +521,7 @@ class NewWindow(QWidget):
         self.initUI(parent_data)
         parent.dataChanged.connect(self.on_data_changed)
         parent.stockInfoChanged.connect(self.on_stock_info_changed)
+        parent.accountInfoChanged.connect(self.on_account_info_changed)
 
         self.sellPrices = []
         self.sellAmts = []
@@ -429,6 +548,7 @@ class NewWindow(QWidget):
             
     def initUI(self, parent_data):
         self.parent_data = parent_data
+        print(parent_data)
         self.setWindowTitle("호가창")
         self.setGeometry(620,300,300,760)
         #self.setGeometry(300,300,300,200)
@@ -440,7 +560,6 @@ class NewWindow(QWidget):
         
         # sendTestBtn.move(20,20)
         
-        # print(parent_data)
         #정보테이블 생성
         self.infoTable = QTableWidget(self)
         self.infoTable.resize(290, 100)
@@ -564,7 +683,9 @@ class NewWindow(QWidget):
         self.changeModeBtn.setText(btnTxt)
         self.updateTable()
         
-        
+    
+    def on_account_info_changed(self, new_data):
+        self.childSignal.emit(new_data)
     def on_data_changed(self, new_data):
         if type(new_data) is dict:
             self.c_hoga_dict = new_data
@@ -639,7 +760,7 @@ class NewWindow(QWidget):
             purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.sellPrices[i]]))
             sAmt = int(self.c_hoga_dict[self.sellAmts[i]])
             sP = self.tableWidget.item(i, 2)
-            sP.setText(format(purePrice, ","))
+            
             sQ = self.tableWidget.cellWidget(i, 1)
             sQBar = sQ.findChild(QProgressBar)
             calToWon = purePrice * int(self.c_hoga_dict[self.sellAmts[i]])
@@ -651,34 +772,42 @@ class NewWindow(QWidget):
             elif self.hoga_interval == 0 and hoga_interval_chk > 0 :
                 self.hoga_interval = hoga_interval_chk - purePrice
             
+            hogaV = None
+            if self.mode == "price":
+                hogaV = wonTxt
+            elif self.mode == "amount" :
+                hogaV = format(sAmt, ",")
+                
+            purePrice = "" if purePrice == 0 else purePrice
+            hogaV = "" if purePrice == 0 else hogaV
+            sP.setText(format(purePrice, ","))
+            
             if isinstance(sQBar, QProgressBar):
                 sQBar.setRange(0, realMax)
                 # sQBar.setFormat(new_data[self.sellAmts[i]])
-                if self.mode == "price" :
-                    sQBar.setFormat(wonTxt)
-                else : sQBar.setFormat(format(sAmt, ","))
+                sQBar.setFormat(hogaV)
                 sQBar.setValue(sAmt)
             
             #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
             key = f"매도직전대비{i+1}"
-            sQChange = self.c_hoga_dict[key]
-            check = int(re.sub(r'[+-]', '', sQChange))
-            if check != 0:
-                label = QLabel(sQChange, self)
-                label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
-                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
-                self.tableWidget.setCellWidget(9 - i, 0, label)
-            else :
-                label = QLabel("", self)
-                label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
-                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
-                self.tableWidget.setCellWidget(9 - i, 0, label)
+            if key in self.c_hoga_dict :
+                sQChange = self.c_hoga_dict[key]
+                check = int(re.sub(r'[+-]', '', sQChange))
+                if check != 0:
+                    label = QLabel(sQChange, self)
+                    label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+                    label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
+                    self.tableWidget.setCellWidget(9 - i, 0, label)
+                else :
+                    label = QLabel("", self)
+                    label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+                    label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-left:5px;") 
+                    self.tableWidget.setCellWidget(9 - i, 0, label)
         #update 매수가격과 호가
         for i in range(10,20):
             idx = i - 10
             purePrice = int(re.sub(r'[+-]', '', self.c_hoga_dict[self.buyPrices[idx]]))
             bP = self.tableWidget.item(i, 2)
-            bP.setText(format(purePrice, ","))
             bQ = self.tableWidget.cellWidget(i, 3)
             bQBar = bQ.findChild(QProgressBar)
             bAmt = int(self.c_hoga_dict[self.buyAmts[idx]])
@@ -687,27 +816,39 @@ class NewWindow(QWidget):
             wonTxt =  str(calToWon) if not isinstance(self.print10T(calToWon), str) else self.print10T(calToWon)
             calToWon = format(purePrice * bAmt, ",")
             
+            hogaV = None
+            if self.mode == "price":
+                hogaV = wonTxt
+            elif self.mode == "amount" :
+                hogaV = format(bAmt, ",")
+                
+            purePrice = "" if purePrice == 0 else purePrice
+            hogaV = "" if purePrice == 0 else hogaV
+            bP.setText(format(purePrice, ","))
+            
             if isinstance(bQBar, QProgressBar):
                 bQBar.setRange(0, realMax)
                 # bQBar.setFormat(new_data[self.buyAmts[idx]])
-                if self.mode == "price" :
-                    bQBar.setFormat(wonTxt)
-                else : bQBar.setFormat(format(bAmt, ","))
+                # if self.mode == "price" :
+                #     bQBar.setFormat(wonTxt)
+                # else : bQBar.setFormat(format(bAmt, ","))
+                bQBar.setFormat(hogaV)
                 bQBar.setValue(bAmt)
             #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
             key = f"매수직전대비{idx +1}"
-            bQChange = self.c_hoga_dict[key]
-            check = int(re.sub(r'[+-]', '', bQChange))
-            if check != 0:
-                label = QLabel(bQChange, self)
-                label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
-                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
-                self.tableWidget.setCellWidget(i, 4, label)
-            else :
-                label = QLabel("", self)
-                label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
-                label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
-                self.tableWidget.setCellWidget(i, 4, label)
+            if key in self.c_hoga_dict :
+                bQChange = self.c_hoga_dict[key]
+                check = int(re.sub(r'[+-]', '', bQChange))
+                if check != 0:
+                    label = QLabel(bQChange, self)
+                    label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                    label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
+                    self.tableWidget.setCellWidget(i, 4, label)
+                else :
+                    label = QLabel("", self)
+                    label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                    label.setStyleSheet("background-color: rgba(255, 255, 255, 0);margin-right:5px;") 
+                    self.tableWidget.setCellWidget(i, 4, label)
 
     def print10T(self, num):
         self.number = num
@@ -729,25 +870,23 @@ class NewWindow(QWidget):
         return result
         
         
-    def testSend(self):
-        child_data = "is going from child"
-        print(self.parent_data)
-        # self.parent.receiveDataFromChild(child_data)
-        # self.close() #창 닫기
-    
+    def passToMain(self, data):
+        print(f"[호가창]passToMain {data}")
+        self.parent.receiveDataFromChild(data)
     def closeEvent(self, event):
-        if hasattr(self, "hogaOrderWin"): # self에 팝업변수 존재 체크
-            self.hogaOrderWin.close()
+        if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
+            self.hogaOrderwin.close()
         self.parent.DisConnectRealData()
         
 class HogaOrderWin(QWidget):
-    # def __init__(self, parent: QWidget | None = ..., flags: WindowFlags | WindowType = ...) -> None:
-    #     super().__init__(parent, flags)
+    # 보유종목 호출로직 필요.(매도)
+    # 미체결내역 호출로직 필요 (정정,취소)
     def __init__(self, parent, parent_data):
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
         self.parent = parent
         self.initUI(parent_data)
-            
+        parent.childSignal.connect(self.receiveTest)
+    
     def initUI(self, parent_data):
         self.parent_data = parent_data
         self.setWindowFlag(Qt.FramelessWindowHint)
@@ -760,12 +899,13 @@ class HogaOrderWin(QWidget):
         
         self.setGeometry(parent_x, child_y, windowW, windowH)
         print(f"parentData : {parent_data}")
+        self.hoga_interval = int(parent_data['hoga_interval'])
+        self.order_hoga = int(parent_data['price'])
+        self.purePw = ""
         
         self.tableWidget = QTableWidget(self)
-        # self.tableWidget.move(0,60)
-        # self.tableWidget.resize(290, 620)
         self.tableWidget.setColumnCount(5) # 3열
-        self.tableWidget.setRowCount(2) # 20행
+        self.tableWidget.setRowCount(1) # 20행
         
         self.tableWidget.verticalHeader().setVisible(False)
         self.tableWidget.horizontalHeader().setVisible(False)
@@ -775,32 +915,131 @@ class HogaOrderWin(QWidget):
         
         # self.resize(windowW, windowH)
         self.tableWidget.resize(windowW, windowH)
-        
         self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.05))
+        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.3))
+        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.05))
         self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))
+        self.tableWidget.move(0,50)
         
-        plusWidget = QWidget()
-        minusWidget = QWidget()
+        
+        #계좌번호 비밀번호입력
+        self.combo_box = QComboBox(self)
+        self.inputPw = QLineEdit(self)
+        self.checkBtn = QPushButton("계좌조회", self)
+        # self.combo_box.move(10,10)
+        # self.inputPw.move(100,10)
+        # self.inputPw.resize(60, self.combo_box.height())
+        
+        # self.checkBtn.resize(self.inputPw.width(), self.inputPw.height())
+        # self.checkBtn.move(150,10)
+        
+        accounts = self.parent.parent_data['account']
+        for item in accounts :
+            self.combo_box.addItem(item)
+        self.combo_box.currentIndexChanged.connect(self.selectAccount)
+        
+        self.accountTable = QTableWidget(self)
+        self.accountTable.setColumnCount(3) # 3열
+        self.accountTable.setRowCount(2) # 20행
+        self.accountTable.setCellWidget(0,0, self.combo_box)
+        self.accountTable.setCellWidget(0,1, self.inputPw)
+        self.accountTable.setCellWidget(0,2, self.checkBtn)
+        self.accountTable.setColumnWidth(0, int(self.tableWidget.width() * 0.33))
+        self.accountTable.setColumnWidth(1, int(self.tableWidget.width() * 0.33))
+        self.accountTable.setColumnWidth(2, int(self.tableWidget.width() * 0.33))
+        
+        row_height = self.accountTable.rowHeight(0)
+        row_cnt = self.accountTable.rowCount()
+        self.accountTable.resize(windowW, row_height * row_cnt)
+        
+        
+        self.inputPw.textChanged.connect(self.maskingPw)
+        self.checkBtn.clicked.connect(self.getAccountInfo)
+        
+        self.accountTable.verticalHeader().setVisible(False)
+        self.accountTable.horizontalHeader().setVisible(False)
+        self.accountTable.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.accountTable.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        
         plusBtn = QPushButton("+", self)
         minusBtn = QPushButton("-", self)
+        buyBtn = QPushButton("매수", self)
+        sellBtn = QPushButton("매도", self)
         item = QTableWidgetItem(format(parent_data['price'],","))
-        self.tableWidget.setItem(1, 2, item)
-        self.tableWidget.setCellWidget(1, 3, plusBtn)
-        self.tableWidget.setCellWidget(1, 1, minusBtn)
+        self.tableWidget.setItem(0, 2, item)
+        self.tableWidget.setCellWidget(0, 3, plusBtn)
+        self.tableWidget.setCellWidget(0, 1, minusBtn)
+        self.tableWidget.setCellWidget(0, 0, buyBtn)
+        self.tableWidget.setCellWidget(0, 4, sellBtn)
         
         plusBtn.clicked.connect(self.btnClicked)
         minusBtn.clicked.connect(self.btnClicked)
+        buyBtn.clicked.connect(self.callTradeEvent)
+        sellBtn.clicked.connect(self.callTradeEvent)
+    
+    def selectAccount(self, index):
+        value = self.sender().currentText()
+        print(f"selected index: {index} {value}")
+        
+    def getAccountInfo(self):
+        accountNo = self.combo_box.currentText()
+        accountPw = self.purePw
+        print(f"계좌조회용 파라미터 : {accountNo}:{accountPw}")
+        data = {}
+        data['purpose'] = "계좌조회"
+        data['accountNo'] = accountNo
+        data['accountPw'] = accountPw
+        self.parent.passToMain(data)
         
     def btnClicked(self, event):
-        print(f"btnClicked {event}")
+        sender = self.sender().text()
+        if sender == "-":
+            self.order_hoga -= self.hoga_interval
+        else :
+            self.order_hoga += self.hoga_interval
+        hogaPrice = self.tableWidget.item(0, 2)
+        hogaPrice.setText(format(self.order_hoga,","))
+    
+    def callTradeEvent(self, event):
+        sender = self.sender()
+        print(f"거래요청 버튼 : {sender.text()}")
+        ordType = "신규매수" if sender.text() == "매수" else "신규매도"
+        accountNo = self.combo_box.currentText()
+        ordQty = 0 #주문수량 입력받는 lineEdit 붙여야함(숫자만)
+        ordPrice = int(re.sub(r'[^0-9]','',self.tableWidget.item(0,2).text())) # a = re.sub(r'[^0-9]','',a)
+        purpose = "주문"
+        data = {"purpose":purpose,"accountNo" : accountNo, "ordQty":ordQty, "ordPrice":ordPrice, "ordType":ordType}
+        self.parent.passToMain(data)
+    
+    def passToMain(self, data):
+        print(f"[주문창]passToMain {data}")
+        self.parent.receiveDataFromChild(data)
+    
+    def maskingPw(self):
+        self.inputPw.textChanged.disconnect(self.maskingPw)
+        text = self.inputPw.text()
         
+        # text = re.sub(r'\D', '', text)
+        text = re.sub(r'[^0-9*]', '', text)
+        lastChar = text if len(self.purePw) == 0 else ( text[len(text) -1] if len(text) > 0 else "")
+        if len(self.purePw) < len(text) :
+            self.purePw += lastChar
+        elif len(self.purePw) > len(text) :
+            self.purePw = self.purePw[:-1]
         
-        # print(f"tableW : {self.tableWidget.width()} tableH : {self.tableWidget.height()}")
-        # print(f"windowW : {windowW} windowH : {windowH}")
-        # print(f"parentW : {self.parent.width()} H : {self.parent.height()}")
+        self.purePw = self.purePw[:4]
+        text = text[:4]
+        masked = re.sub(r'.', '*', text) #masking
+        self.inputPw.setText(masked)
+        self.inputPw.textChanged.connect(self.maskingPw)
+        
+    def receiveTest(self, data):
+        print(f"조회테스트 : {data}\n{data['myUsableCash']}")
+        item = QTableWidgetItem("주문가능금액")
+        total = QTableWidgetItem(str(data['myUsableCash']))
+        self.accountTable.setItem(1, 0, item)
+        self.accountTable.setItem(1, 1, total)
         
 def main():
     app = QApplication(sys.argv)
