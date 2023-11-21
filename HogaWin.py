@@ -12,7 +12,7 @@ class HogaWin(QWidget):
     posSignal = pyqtSignal(QVariant)
     def __init__(self, parent, parent_data):
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
-        
+        self.mainWin = parent
         #호가창변수
         self.sellPrices = []
         self.sellAmts = []
@@ -27,6 +27,9 @@ class HogaWin(QWidget):
         self.myUsableCash = 0
         self.hogawinData = {}
         self.myQty = 0
+        self.SCREEN_NO = "0111"
+        self.STOCK_CODE = self.mainWin.stockCode
+        self.STOCK_NAME = self.mainWin.stockName
         
         self.parent = parent
         self.initUI(parent_data)
@@ -296,11 +299,12 @@ class HogaWin(QWidget):
                 hogaV = format(sAmt, ",")
                 
             purePrice = "" if purePrice == 0 else format(purePrice, ",")
-            hogaV = "" if purePrice == 0 else hogaV
+            hogaV = "" if purePrice == "" else hogaV
             sP.setText(purePrice)
             
-            if isinstance(sQBar, QProgressBar):
-                sQBar.setRange(0, realMax)
+            if isinstance(sQBar, QProgressBar): #호가막대그래프 표현
+                if realMax > 0 :
+                    sQBar.setRange(0, realMax)
                 # sQBar.setFormat(new_data[self.sellAmts[i]])
                 sQBar.setFormat(hogaV)
                 sQBar.setValue(sAmt)
@@ -340,11 +344,12 @@ class HogaWin(QWidget):
                 hogaV = format(bAmt, ",")
                 
             purePrice = "" if purePrice == 0 else format(purePrice, ",")
-            hogaV = "" if purePrice == 0 else hogaV
+            hogaV = "" if purePrice == "" else hogaV
             bP.setText(purePrice)
             
-            if isinstance(bQBar, QProgressBar):
-                bQBar.setRange(0, realMax)
+            if isinstance(bQBar, QProgressBar): #호가막대그래프 표현
+                if realMax > 0 :
+                    bQBar.setRange(0, realMax)
                 bQBar.setFormat(hogaV)
                 bQBar.setValue(bAmt)
             #표시할 호가수량 변동: self.c_hoga_dict['매도직전대비1~10']
@@ -388,11 +393,12 @@ class HogaWin(QWidget):
         if data['purpose'] == "계좌조회":
             accountNo = data['accountNo']
             data['accountCheck'][accountNo] = True
-        self.parent.receiveDataFromChild(data)
+        
+        self.mainWin.callApi(data)
     def closeEvent(self, event):
         if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
             self.hogaOrderwin.close()
-        self.parent.DisConnectRealData()
+        self.mainWin.DisConnectRealData(self.SCREEN_NO, self.STOCK_CODE)
         
     def moveEvent(self, event):
         self.posSignal.emit({"x" : self.x(), "y":self.y()})

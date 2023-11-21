@@ -9,6 +9,8 @@ from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant, QEvent
 from HogaWin import *
+from AssetWin import *
+from OrderInfoPop import *
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -42,6 +44,8 @@ class MyWin(QMainWindow):
     dataChanged = pyqtSignal(QVariant)
     stockInfoChanged = pyqtSignal(QVariant)
     accountInfoChanged = pyqtSignal(QVariant)
+    assetInfoChanged = pyqtSignal(QVariant)
+    orderInfoChanged = pyqtSignal(QVariant)
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -65,11 +69,18 @@ class MyWin(QMainWindow):
         self.selected_account = None
         self.account_pw = None
         self.myAssetInfo = []
+        self.myAssetInfos = {}
+        self.orderInfos = []
+        self.thisAccountNo = None
         
         self.myCash = 0
         self.myUsableCash = 0
         
         self.hogawin_data = None
+        self.req_accountNo = None
+        
+        self.charge = {"virtual" :{ "fee" : 0.0035, "tax" : 0.002}, "real" : {"fee": 0.00015, "tax": 0.002}}
+        self.MODE = "virtual" #virtual : 모의투자, real: 실제투자
         
         self.loginEvent()
         """ocx 이벤트구간"""
@@ -130,7 +141,7 @@ class MyWin(QMainWindow):
         for item in accounts :
             if len(item) > 0 :
                 self.accounts.append(item)
-        self.getMyAssetInfo() #보유잔고정보 조회
+        # self.getMyAssetInfo() #보유잔고정보 조회
 
         # self.ocx.KOA_Functions("ShowAccountWindow","")
         # self.code_edit.append(f"계좌번호 : {account_num}")
@@ -139,14 +150,14 @@ class MyWin(QMainWindow):
         self.setInputValue("계좌번호", accNo)
         self.setInputValue("비밀번호", "")
         self.setInputValue("조회구분", 2) #2 : 일반조회, 3 : 추정조회
-        self.requestData("opw00001", "종목코드", '0', "0362")
-    def getOrderInfo(self): #계좌별주문체결내역상세요청
+        self.requestData("opw00001", "종목코드", '0', "0362") #0362 예수금상세현황
+    def getOrderInfo(self, accNo): #계좌별주문체결내역상세요청
         trCode = "opw00007"
         screenNo = "0351"
         current_time = datetime.datetime.now()
         today = int(current_time.strftime("%Y%m%d"))
         self.setInputValue("주문일자", today)
-        self.setInputValue("계좌번호", self.accounts[0])
+        self.setInputValue("계좌번호", accNo)
         self.setInputValue("비밀번호", "")
         self.setInputValue("비밀번호입력매체구분", "00")
         self.setInputValue("조회구분", "1") #1:주문순 2:역순 3:미체결 4:체결내역
@@ -155,16 +166,17 @@ class MyWin(QMainWindow):
         self.setInputValue("종목코드", "") #공백일때 전체
         self.setInputValue("시작주문번호", "") #공백일때 전체
         self.requestData(trCode, "", "", screenNo)
-    def getMyAssetInfo(self): #계좌평가현황요청
-        for i in range(len(self.accounts)):
-            self.setInputValue("계좌번호", self.accounts[i])
-            self.setInputValue("비밀번호", "") #사용안함 공백
-            self.setInputValue("상장폐지조회구분", 0) # 0:전체, 1:상장폐지종목 제외
-            self.setInputValue("비밀번호입력매체구분", "00") # 0:전체, 1:상장폐지종목 제외
-            self.setInputValue("조회구분", "2") # 1:합산 2:개별
-            # self.requestData("opw00018", "", '0', "0391")
-            self.requestData("opw00004", "", '0', "0391")
-        # self.ocx.KOA_Functions("ShowAccountWindow","")
+    def getMyAssetInfo(self, accountNo): #계좌평가현황요청
+        self.thisAccountNo = accountNo
+        self.myAssetInfos[accountNo] = {'accountCheck' : True}
+        self.myAssetInfos[accountNo]['assets'] = []
+        
+        self.setInputValue("계좌번호", accountNo)
+        self.setInputValue("비밀번호", "") #사용안함 공백
+        self.setInputValue("상장폐지조회구분", 0) # 0:전체, 1:상장폐지종목 제외
+        self.setInputValue("비밀번호입력매체구분", "00") # 0:전체, 1:상장폐지종목 제외
+        self.setInputValue("조회구분", "2") # 1:합산 2:개별
+        self.requestData("opw00004", "", '0', "0346") #계좌평가잔고내역
                 
     def update_hoga(self): #호가창 업데이트
         self.dataChanged.emit(self.hoga_dict)
@@ -174,8 +186,6 @@ class MyWin(QMainWindow):
         self.accountInfoChanged.emit(toSend)
     
     def test(self):
-        # self.getMyAssetInfo()
-        # self.getOrderInfo()
         self.openPopup("test")
     def typing(self): #종목명 타이핑 이벤트
         word_list = []
@@ -226,16 +236,13 @@ class MyWin(QMainWindow):
         
         if hourMin < 1530 and hourMin >= 900:
             self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
-            # self.requestData("opt10004", "종목코드", code, "0111")
-            # self.openPopup()
+            # 41:매도호가1 61:매도호가수량1 81:매도호가직전대비1;51:매수호가1;71:매수호가수량1;91:매수호가직전대비1
         elif hourMin > 0 and hourMin < 900:
             self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
-            # self.requestData("opt10004", "종목코드", code, "0111")
         else :
-            print("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
-            # self.requestData("opt10004", "종목코드", code, "0111")
+            self.text_edit.append("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
         self.requestData("opt10004", "종목코드", code, "0111")
-        # 41:매도호가1 61:매도호가수량1 81:매도호가직전대비1;51:매수호가1;71:매수호가수량1;91:매수호가직전대비1
+        
             
     def received_msg(self, screenNo, rqName, trCode, msg): #서버메세지 수신
         self.writeLog(f"[{screenNo}][{rqName}][{trCode}] : {msg}")
@@ -270,6 +277,8 @@ class MyWin(QMainWindow):
             self.myCash = int(self.getCommData(trCode, rqName, "예수금").strip())
             self.myUsableCash = int(self.getCommData(trCode, rqName, "주문가능금액").strip())
             logText = f"예수금요청 예수금:{self.myCash} 주문가능:{self.myUsableCash}"
+            self.myAssetInfos[self.thisAccountNo]['myUsableCash'] = self.myUsableCash
+            self.myAssetInfos[self.thisAccountNo]['myCash'] = self.myCash
             self.writeLog(logText)
             self.update_account_info()
         elif rqName == "opw00004_req": #계좌평가현황요청
@@ -279,48 +288,52 @@ class MyWin(QMainWindow):
             print(f"[test] : {totalBought}")
             for i in range(nCnt):
                 template = {}
-                template["stockCd"] = self.getCommData(trCode, rqName, "종목코드", i).strip()
-                template["stockNm"] = self.getCommData(trCode, rqName, "종목명", i).strip()
-                template["qty"] = int(self.getCommData(trCode, rqName, "보유수량", i).strip())
-                template["avgPrice"] = int(self.getCommData(trCode, rqName, "평균단가", i).strip())
-                template["nowPrice"] = int(self.getCommData(trCode, rqName, "현재가", i).strip())
-                template["evalPrice"] = int(self.getCommData(trCode, rqName, "평가금액", i).strip())
-                template["earnPrice"] = int(self.getCommData(trCode, rqName, "손익금액", i).strip())
-                template["earnRate"] = round(int(self.getCommData(trCode, rqName, "손익율", i).strip()) / 10000, 2)
-                template["loanDate"] = self.getCommData(trCode, rqName, "대출일", i).strip()
-                template["boughtTotal"] = int(self.getCommData(trCode, rqName, "매입금액", i).strip())
-                template["paymentBalance"] = int(self.getCommData(trCode, rqName, "결제잔고", i).strip())
+                template["stockCd"] = self.getCommData(trCode, rqName, "종목코드", i)
+                template["stockNm"] = self.getCommData(trCode, rqName, "종목명", i)
+                template["qty"] = int(self.getCommData(trCode, rqName, "보유수량", i))
+                template["avgPrice"] = int(self.getCommData(trCode, rqName, "평균단가", i))
+                template["nowPrice"] = int(self.getCommData(trCode, rqName, "현재가", i))
+                template["evalPrice"] = int(self.getCommData(trCode, rqName, "평가금액", i)) #이 평가금액은 현재가로 매도시에 입금될 금액. 수수료,세금 다 제외한 실제매출
+                template["earnPrice"] = int(self.getCommData(trCode, rqName, "손익금액", i))
+                template["earnRate"] = round(int(self.getCommData(trCode, rqName, "손익율", i)) / 10000, 2)
+                template["loanDate"] = self.getCommData(trCode, rqName, "대출일", i)
+                template["boughtTotal"] = int(self.getCommData(trCode, rqName, "매입금액", i))
+                template["paymentBalance"] = int(self.getCommData(trCode, rqName, "결제잔고", i))
+                template["pQty"] = template["qty"] #보유수량
                 
-                print(f"[test] : {template})")
                 self.myAssetInfo.append(template)
+                self.myAssetInfos[self.thisAccountNo]['assets'].append(template)
             logText = f"[test] self.myAssetInfo: {self.myAssetInfo})"
             self.writeLog(logText)
+            self.update_assetData()
+        
         elif rqName == "opw00007_req" : #계좌별주문체결내역상세요청
             self.orderInfos = []
             for i in range(nCnt):
                 template = {}
-                template["ordNo"] = self.getCommData(trCode, rqName, "주문번호", i).strip()
-                template["stockNo"] = self.getCommData(trCode, rqName, "종목번호", i).strip()
-                template["tradeGubun"] = self.getCommData(trCode, rqName, "매매구분", i).strip()
-                template["creditGubun"] = self.getCommData(trCode, rqName, "신용구분", i).strip()
-                template["ordQty"] = self.getCommData(trCode, rqName, "주문수량", i).strip()
-                template["ordPrice"] = self.getCommData(trCode, rqName, "주문단가", i).strip()
-                template["confirmQty"] = self.getCommData(trCode, rqName, "확인수량", i).strip()
-                template["receiptGubun"] = self.getCommData(trCode, rqName, "접수구분", i).strip()
-                template["opposeYn"] = self.getCommData(trCode, rqName, "반대여부", i).strip()
-                template["ordTime"] = self.getCommData(trCode, rqName, "주문시간", i).strip()
-                template["originOrder"] = self.getCommData(trCode, rqName, "원주문", i).strip()
-                template["stockName"] = self.getCommData(trCode, rqName, "종목명", i).strip()
-                template["orderGubun"] = self.getCommData(trCode, rqName, "주문구분", i).strip()
-                template["loanDate"] = self.getCommData(trCode, rqName, "대출일", i).strip()
-                template["dealQty"] = self.getCommData(trCode, rqName, "체결수량", i).strip()
-                template["dealPrice"] = self.getCommData(trCode, rqName, "체결단가", i).strip()
-                template["orderRemain"] = self.getCommData(trCode, rqName, "주문잔량", i).strip()
-                template["connectGubun"] = self.getCommData(trCode, rqName, "통신구분", i).strip()
-                template["fixCancel"] = self.getCommData(trCode, rqName, "정정취소", i).strip()
-                template["confirmTime"] = self.getCommData(trCode, rqName, "확인시간", i).strip()
+                template["주문번호"] = self.getCommData(trCode, rqName, "주문번호", i)
+                template["종목번호"] = self.getCommData(trCode, rqName, "종목번호", i)
+                template["매매구분"] = self.getCommData(trCode, rqName, "매매구분", i)
+                template["신용구분"] = self.getCommData(trCode, rqName, "신용구분", i)
+                template["주문수량"] = int(self.getCommData(trCode, rqName, "주문수량", i))
+                template["주문단가"] = int(self.getCommData(trCode, rqName, "주문단가", i))
+                template["확인수량"] = int(self.getCommData(trCode, rqName, "확인수량", i))
+                template["접수구분"] = self.getCommData(trCode, rqName, "접수구분", i)
+                template["반대여부"] = self.getCommData(trCode, rqName, "반대여부", i)
+                template["주문시간"] = self.getCommData(trCode, rqName, "주문시간", i)
+                template["원주문"] = self.getCommData(trCode, rqName, "원주문", i)
+                template["종목명"] = self.getCommData(trCode, rqName, "종목명", i)
+                template["주문구분"] = self.getCommData(trCode, rqName, "주문구분", i)
+                template["대출일"] = self.getCommData(trCode, rqName, "대출일", i)
+                template["체결수량"] = int(self.getCommData(trCode, rqName, "체결수량", i))
+                template["체결단가"] = int(self.getCommData(trCode, rqName, "체결단가", i))
+                template["주문잔량"] = int(self.getCommData(trCode, rqName, "주문잔량", i))
+                template["통신구분"] = self.getCommData(trCode, rqName, "통신구분", i)
+                template["정정취소"] = self.getCommData(trCode, rqName, "정정취소", i)
+                template["확인시간"] = self.getCommData(trCode, rqName, "확인시간", i)
                 self.orderInfos.append(template)
-            print(f"[체결내역상세요청] : {self.orderInfos}")
+            print(f"[체결내역 수신완료] 주문개수 : {len(self.orderInfos)}")
+            self.update_orderInfo()
         elif rqName == "sendOrder": #주문응답
             #비정상 주문의 경우 주문번호가 ""(공백)
             ordNo = self.getCommData(trCode, rqName, "주문번호").strip()
@@ -363,29 +376,19 @@ class MyWin(QMainWindow):
             """
             for item in outputParams :
                 result = self.getCommData(trCode, rqName, item)
-                #호가잔량기준시간 : hhMMss
                 if convertForm.get(item) is not None :
                     key = convertForm[item]
                     self.hoga_dict[key] = result.strip()
             
             self.openPopup("hogaWin")
             self.update_hoga()
-    
+            
+    def update_assetData(self):
+        self.assetInfoChanged.emit(self.myAssetInfos)
+    def update_orderInfo(self):
+        self.orderInfoChanged.emit(self.orderInfos)
+            
     def receive_chejan(self, data): #sendOrder결과 이벤트
-        # accNo = self.ocx.dynamicCall("GetChejanData(QString)", 9201)
-        # ordNo = self.ocx.dynamicCall("GetChejanData(QString)", 9203)
-        # stockCd = self.ocx.dynamicCall("GetChejanData(QString)", 9001)
-        # ordState = self.ocx.dynamicCall("GetChejanData(QString)", 913)
-        # ordGubun = self.ocx.dynamicCall("GetChejanData(QString)", 905)
-        # ordRemain = self.ocx.dynamicCall("GetChejanData(QString)", 902)
-        # trGubun = self.ocx.dynamicCall("GetChejanData(QString)", 906)
-        # buySellGubun = self.ocx.dynamicCall("GetChejanData(QString)", 907)
-        # buySellGubun2 = self.ocx.dynamicCall("GetChejanData(QString)", 946)
-        # dealTime = self.ocx.dynamicCall("GetChejanData(QString)", 908)
-        # dealNo = self.ocx.dynamicCall("GetChejanData(QString)", 909)
-        # dealPrice = self.ocx.dynamicCall("GetChejanData(QString)", 910)
-        # dealAmt = self.ocx.dynamicCall("GetChejanData(QString)", 911)
-        
         fidList = {
             "계좌번호" : "9201",
             "주문번호" : "9203",
@@ -436,13 +439,38 @@ class MyWin(QMainWindow):
         }
         received_data = {}
         for key, value in fidList.items():
-            received_data[key] = self.ocx.dynamicCall("GetChejanData(QString)", value)
+            received_data[key] = self.ocx.dynamicCall("GetChejanData(QString)", value).strip()
         results = {
-            0 : "접수 및 체결", 1 : "잔고변경", 4 : "파생잔고변경"
+            '0' : "접수 및 체결", '1' : "잔고변경", '4' : "파생잔고변경"
         }
         print(f"[receive_chejan] 체결결과 : {data} = {results[data]}")
         print(f"[receive_chejan] 수신데이터 : {received_data}")
-    
+        state = results[data]
+        accountNo = received_data['계좌번호']
+        assets = self.myAssetInfos[accountNo]['assets']
+
+        if results[data] == '잔고변경':
+            "매도접수는 주문가능수량 매도체결시에는 보유수량 수정."
+            pickData = [e for e in assets if e['stockCd'] == received_data['종목코드']] #myAssetInfos에 종목 존재여부 체크
+            if len(pickData) > 0 : #"기존데이터 존재. 수정"
+                pickData = pickData[0]
+                pickData['qty'] = int(received_data['보유수량'])
+                pickData['pQty'] = int(received_data['주문가능수량'])
+                pickData['boughtTotal'] = int(received_data['총매입가'])
+                pickData['avgPrice'] = int(pickData['boughtTotal'] / pickData['qty'])
+            else : #"신규데이터. 추가"
+                template = {'stockCd': received_data['종목코드'], 
+                            'stockNm': received_data['종목명'],
+                            'qty': int(received_data['보유수량']),
+                            'pQty' : int(received_data['주문가능수량']),
+                            'avgPrice': int(int(received_data['총매입가']) / int(received_data['보유수량'])),
+                            'nowPrice': int(received_data['현재가']), 'evalPrice': 0, 'earnPrice': 0, 'earnRate': 0, 'loanDate': '',
+                            'boughtTotal': int(received_data['총매입가']), 'paymentBalance': 0}
+                assets.append(template)
+            print(f"[{state} 확인] : {assets}")
+    def modifyAssetInfo(self):
+        ""
+        
     def sendOrder(self, rqName, accountNo, ordType, orderQty, orderPrice, hogaGubun, orgOrdNo = ""): #주문전송
         self.hogaGubun = None
         orderTypes = {"신규매수":"1", "신규매도":"2", "매수취소":"3", "매도취소":"4", "매수정정":"5", "매도정정":"6"}
@@ -459,17 +487,18 @@ class MyWin(QMainWindow):
         #받아온 메세지 출력 :4989 sendOrder KOA_NORMAL_BUY_KP_ORD [RC4027] 모의투자 상/하한가 오류입니다.
         
     def SetRealReg(self, screen_no, code_list, fid_list, real_type): #실시간 데이터 ON
-        print(screen_no + "실시간데이터 요청시작")
+        print(f"[{screen_no} - {code_list} {fid_list} {real_type}] 실시간데이터 요청")
         self.ocx.dynamicCall("SetRealReg(QString, QString, QString, QString)", 
                               screen_no, code_list, fid_list, real_type)
-        self.statusBar().showMessage("실시간데이터 ON")
+        self.writeLog(f"[{screen_no}][{code_list}] 실시간데이터 ON")
+        # self.statusBar().showMessage("실시간데이터 ON")
 
-    def DisConnectRealData(self, screen_no=""): #실시간 데이터 OFF
-        screen_no
-        code = self.stockCode
-        # self.ocx.dynamicCall("DisConnectRealData(QString)", screen_no)
-        self.ocx.dynamicCall("SetRealRemove(QString, QString)", "ALL", "ALL")
-        self.statusBar().showMessage("실시간데이터 OFF")
+    def DisConnectRealData(self, screenNo, stockCd = ""): #실시간 데이터 OFF
+        code = "ALL" if stockCd == "" else stockCd
+        screenNo = "ALL" if screenNo == "" else screenNo
+        self.ocx.dynamicCall("SetRealRemove(QString, QString)", screenNo, code) #screenNo, stockCd
+        self.writeLog(f"[{screenNo}][{stockCd}] 실시간데이터 OFF")
+        # self.statusBar().showMessage("실시간데이터 OFF")
     
     def _handler_real_data(self, code, real_type, data): #실시간 데이터 처리
         if real_type == "주식호가잔량":
@@ -504,7 +533,7 @@ class MyWin(QMainWindow):
             self.update_hoga()
             # for key,val in toSend.items():
             #     print(f"{key} : {val}")
-        if real_type == "주식체결":
+        elif real_type == "주식체결":
             nowTime = self.GetCommRealData(code, 20)
             todayStart = self.GetCommRealData(code, 16)
             todayHigh = self.GetCommRealData(code, 17)
@@ -533,15 +562,19 @@ class MyWin(QMainWindow):
             fString = f"주식체결 ::: {self.stockName}( {code} )"
             fInfos = f" {self.stockName} 현재가:{nowPrice} 누적거래량 {accAmt} 누적거래대금 {accPrice} 가격변동:{priceChange} 등락률:{movePercent}"
             # print(fString, fInfos)
-        if real_type == "주식우선호가":
+            if self.thisAccountNo is not None: self.comparePrice(code, int(nowPrice))
+        elif real_type == "주식우선호가":
             #호가틱이 변동될 때 발생하는 이벤트.
             now = datetime.datetime.now()
             ask01 =  self.GetCommRealData(code, 27)         
             bid01 =  self.GetCommRealData(code, 28)
             print(f"현재시간 {now} | 최우선매도호가: {ask01} 최우선매수호가: {bid01}")
-    
+        elif real_type == "주식시세":
+            nowP = self.GetCommRealData(code, 10)
+            print(f"[실시간잔고] {code} {nowP}")
     def getCommData(self, trCode, recordName, itemNm, idx = 0): #데이터추출
-        return self.ocx.dynamicCall("GetCommData(QString, QString, int, QString)", trCode, recordName, idx, itemNm)
+        result = self.ocx.dynamicCall("GetCommData(QString, QString, int, QString)", trCode, recordName, idx, itemNm)
+        return result.strip()
           
     def GetCommRealData(self, code, fid): #실시간데이터 추출
         data = self.ocx.dynamicCall("GetCommRealData(QString, int)", code, fid) 
@@ -585,51 +618,53 @@ class MyWin(QMainWindow):
             self.hogaWin = HogaWin(self, toPassData)
             self.hogaWin.show()
         elif purpose == "test":
-            toPassData = 1
-            self.testWin = TestWin(self, toPassData)
-            self.testWin.show()
+            self.assetWin = AssetWin(self)
+            self.assetWin.show()
+        elif purpose == "orderInfoPop":
+            self.orderInfoPop = OrderInfoPop(self)
+            self.orderInfoPop.show()
     
-    def receiveDataFromChild(self, data):
+    def comparePrice(self, code, nowPrice):
+        if hasattr(self, "assetWin"):
+            assets = self.myAssetInfos[self.thisAccountNo]['assets']
+            if len(assets) > 0 :
+                temp = [item for item in assets if code in item['stockCd']]
+                if len(temp) > 0 : 
+                    temp = temp[0]
+                    if(temp['nowPrice'] != nowPrice):
+                        temp['nowPrice'] = nowPrice
+                        self.update_assetData()
+    
+    def callApi(self,data):
         purpose = data['purpose']
         print(f"main received data {data}")
         if purpose == "계좌조회":
             self.hogawin_data = data
+            self.getMyAssetInfo(data['accountNo'])
             self.getAccountInfo(data['accountNo'], data['accountPw'])
         elif purpose == "주문":
             print(f"[주문테스트] {data}")
-            self.sendOrder("sendOrder", data['accountNo'], data['ordType'], data['ordQty'], data['ordPrice'], None)
-        
+            originOrdNo = data['originOrdNo'] if 'originOrdNo' in data else None
+            self.sendOrder("sendOrder", data['accountNo'], data['ordType'], data['ordQty'], data['ordPrice'], None, originOrdNo)
+        elif purpose == "주문조회":
+            print(f"[주문조회요청처리]")
+            self.getOrderInfo(data['accountNo'])
     def closeEvent(self, event): # 창 종료이벤트
         if hasattr(self, "hogaWin"): # self에 팝업변수 존재 체크
             if isinstance(self.hogaWin, QWidget):
                 if hasattr(self.hogaWin, "hogaOrderwin"): # self에 팝업변수 존재 체크
                     self.hogaWin.hogaOrderwin.close()
             self.hogaWin.close()
+        if hasattr(self, "assetWin"): # self에 팝업변수 존재 체크
+            self.assetWin.close()
+        if hasattr(self, "orderInfoPop"):
+            self.orderInfoPop.close()
         event.accept() #프로그램 종료 . 이벤트 회수?
     
     def resizeEvent(self, event): #창크기변경 이벤트
         self.text_edit.setGeometry(10,60,self.width() - 20, int(self.height() * 0.4))
     # def moveEvent(self, event):
     #     print(f"{self.x()} {self.y()}")
-class TestWin(QWidget):
-    def __init__(self, parent, parent_data):
-        super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
-        
-        self.parent = parent
-        self.initUI(parent_data)
-
-    def initUI(self, parent_data):
-        self.parent_data = parent_data
-        print(parent_data)
-        self.setWindowTitle("테스트")
-        self.setGeometry(15,15,300,760)
-        #self.setGeometry(300,300,300,200)
-    
-    def closeEvent(self, event):
-        if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
-            self.hogaOrderwin.close()
-        self.parent.DisConnectRealData()
-    
         
 def showAlert(msg):
         alert = QMessageBox()

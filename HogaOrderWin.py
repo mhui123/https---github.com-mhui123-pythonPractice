@@ -13,16 +13,15 @@ class HogaOrderWin(QWidget):
     def __init__(self, parent, parent_data):
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
         self.parent = parent
+        self.mainWin = self.parent.parent
         self.initUI(parent_data)
         parent.childSignal.connect(self.receiveAccountInfo)
         parent.posSignal.connect(self.posTest)
         
     def posTest(self, data):
-        print(f"[posTest] : {data}")
         x = data['x'] + self.parent.width()
         y = data['y']
         self.move(x, y)
-        
     def initUI(self, parent_data):
         self.parent_data = parent_data
         self.setWindowFlag(Qt.FramelessWindowHint)
@@ -46,9 +45,10 @@ class HogaOrderWin(QWidget):
         self.order_hoga = int(parent_data['price'])
         self.purePw = ""
         self.myUsableCash = int(parent_data['myUsableCash'])
-        self.possibleQty = int(self.myUsableCash / self.order_hoga)
+        self.possibleQty = 0 if self.myUsableCash == 0 or self.order_hoga == 0 else int(self.myUsableCash / self.order_hoga)
         self.qty = 0
         self.qtyMode = "amount"
+        self.accountNo = None
         self.account_checked = False
         
         
@@ -57,6 +57,7 @@ class HogaOrderWin(QWidget):
         self.combo_box = QComboBox(self)
         self.inputPw = QLineEdit(self)
         self.inputPw.setPlaceholderText("계좌비밀번호")
+        self.callOrderInfoBtn = QPushButton("주문조회", self)
         self.inputQty = QLineEdit(self)
         self.inputQty.setPlaceholderText("수량")
         self.checkBtn = QPushButton("계좌조회", self)
@@ -73,14 +74,16 @@ class HogaOrderWin(QWidget):
         for item in accounts :
             self.combo_box.addItem(item)
             self.myaccounts[item] = False
-        self.combo_box.currentIndexChanged.connect(self.selectAccount)
+            
+        self.accountNo = accounts[0]
         # self.inputQty.textChanged.connect(lambda: self.filtNumber(self.inputQty.text()))
-        self.account_checked = False if parent_data['hogawinData'] is None else parent_data['hogawinData']['accountCheck'][self.combo_box.currentText()]
-        
+        self.callOrderInfoBtn.clicked.connect(self.getOrderInfo)
+        # self.account_checked = False if parent_data['hogawinData'] is None else parent_data['hogawinData']['accountCheck'][self.combo_box.currentText()]
+        self.account_checked = False if len(self.mainWin.myAssetInfos) == 0 else self.mainWin.myAssetInfos[self.accountNo]['accountCheck']
         self.accountTable.setColumnCount(3) # 3열
         self.accountTable.setRowCount(1) # 20행
         self.accountTable.setCellWidget(0,0, self.combo_box)
-        # self.accountTable.setCellWidget(0,1, self.inputPw)
+        self.accountTable.setCellWidget(0,1, self.callOrderInfoBtn)
         self.accountTable.setCellWidget(0,2, self.checkBtn)
         self.accountTable.setStyleSheet("QTableWidget { border : none; gridline-color: white}") #테두리제거
         
@@ -88,6 +91,7 @@ class HogaOrderWin(QWidget):
         y = 15
         self.setTbGeometry(self.accountTable, x, y)
         
+        self.combo_box.currentIndexChanged.connect(self.selectAccount)
         self.inputPw.textChanged.connect(self.maskingPw)
         self.checkBtn.clicked.connect(self.getAccountInfo)
         
@@ -188,9 +192,10 @@ class HogaOrderWin(QWidget):
             
     def updateAccountInfo(self):
         pQtyWidget = self.ordTable.cellWidget(3, 0)
-        price = self.filtNumber(self.inputPrice.text())
-        self.possibleQty = int(self.myUsableCash / price)
-        pQtyWidget.setText(f"주문가능수량 : {self.possibleQty}")
+        if pQtyWidget is not None :
+            price = self.filtNumber(self.inputPrice.text())
+            self.possibleQty = 0 if self.myUsableCash == 0 or price == 0 else int(self.myUsableCash / price)
+            pQtyWidget.setText(f"주문가능수량 : {self.possibleQty}")
         
     def btnHideShow(self):
         buyBtn = self.tableWidget.cellWidget(0, 0)
@@ -219,16 +224,18 @@ class HogaOrderWin(QWidget):
             accountNo = self.combo_box.currentText()
         else :
             accountNo = self.sender().currentText()
+            
+        self.accountNo = accountNo
         
         if self.myaccounts[accountNo] == True:
             self.checkBtn.setDisabled(True)
             self.inputPw.setDisabled(True)
             # self.combo_box.setDisabled(True)
-            self.chkAccountNoIsSearched()
+            self.chkAccountNoIsSearched(accountNo)
         else :
             self.checkBtn.setDisabled(False)
             self.inputPw.setDisabled(False)
-            self.chkAccountNoIsSearched()
+            self.chkAccountNoIsSearched(accountNo)
         
     def btnClicked(self, event):
         sender = self.sender().text()
@@ -252,7 +259,7 @@ class HogaOrderWin(QWidget):
             sender = self.sender()
             print(f"거래요청 버튼 : {sender.text()}")
             if self.validateInputQty(sender.text()) == True :
-                ordType = "신규매수" if sender.text() == "매수" else "신규매도"
+                ordType = "신규매수" if sender.text() == "매수" else "신규매도" #정정주문 : "매수정정" "매도정정" 취소주문: "매수취소" "매도취소"
                 accountNo = self.combo_box.currentText()
                 ordPrice = self.filtNumber(self.inputPrice.text())
                 
@@ -261,7 +268,8 @@ class HogaOrderWin(QWidget):
                 ordQty = self.qty
                 purpose = "주문"
                 data = {"purpose":purpose,"accountNo" : accountNo, "ordQty":ordQty, "ordPrice":ordPrice, "ordType":ordType}
-                self.parent.passToMain(data)
+                # self.parent.passToMain(data)
+                self.mainWin.callApi(data)
     
     def passToMain(self, data):
         print(f"[주문창]passToMain {data}")
@@ -339,12 +347,21 @@ class HogaOrderWin(QWidget):
         data['accountNo'] = accountNo
         data['accountPw'] = accountPw
         data['accountCheck'] = self.myaccounts
-        self.parent.passToMain(data)
-        
+        # self.parent.passToMain(data)
+        self.mainWin.callApi(data)
+    def getOrderInfo(self):
+        data = {'purpose':'주문조회', 'accountNo': self.accountNo}
+        self.mainWin.callApi(data)
+        # if not hasattr(self.mainWin, 'orderInfoPop'):
+        self.mainWin.openPopup('orderInfoPop')
     def receiveAccountInfo(self, data):
-        self.myUsableCash = data['myUsableCash']
-        self.myQty = data['myQty']
-        print(f"조회테스트 : {data}\n{data['myUsableCash']} self.myUsableCash : {self.myUsableCash}")
+        # self.myUsableCash = data['myUsableCash']
+        # self.myQty = data['myQty']
+        
+        assets = self.mainWin.myAssetInfos[self.accountNo]['assets']
+        self.myUsableCash = self.mainWin.myUsableCash
+        temp = [item['qty'] for item in assets if item['stockNm'] == self.mainWin.stockName]
+        self.myQty = 0 if len(temp) == 0 else temp[0]
         self.writeAccountInfo()
         self.updateAccountInfo()
         accountNo = self.combo_box.currentText()
@@ -384,3 +401,7 @@ class HogaOrderWin(QWidget):
             target.setGeometry(x, y, w, h)
         for i in range(target.columnCount()):
             target.setColumnWidth(i, int(target.width() / target.columnCount())) 
+    def closeEvent(self, event): # 창 종료이벤트
+        if hasattr(self.mainWin, "orderInfoPop"): # self에 팝업변수 존재 체크
+            self.mainWin.orderInfoPop.close()
+        event.accept() #프로그램 종료 . 이벤트 회수?
