@@ -52,8 +52,6 @@ class OrderInfoPop(QWidget):
             item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
             self.stockTable.setItem(0, i, item)
             
-        self.setTbStyle(self.stockTable)
-        self.setTbGeometry(self.stockTable, 15, 100)
         self.stockTable.cellClicked.connect(self.cellClickEvent)
     def update_orderInfo(self):
         print(f"[orderInfo update test] : {self.mainWin.orderInfos}")
@@ -82,17 +80,17 @@ class OrderInfoPop(QWidget):
                 data = {"purpose":purpose,"accountNo" : accountNo, "ordQty":ordQty, "ordPrice":ordPrice, "ordType":ordType}
                 # self.parent.passToMain(data)
                 self.mainWin.callApi(data)
-        취소된 주문은 새로운 주문번호로 생성이 되며, 원주문에 신청한 주문번호, 정정취소에 '취소'로 값을 받아옴.
-        이 취소된 원주문번호로 입력된 row를 제거하기 위해서는 QTableWidget.removeRow()
-        self.stockTable.removeRow(rowIdx)
+        1. 정정주문시 수량과 가격 입력받아 주문전송하는 기능 필요
+        2. 주문 체결, 새로운 주문 추가, 주문취소시 테이블 업데이트 기능 필요
+        3. 정정주문시 체결,취소된 주문은 전송 못하도록 validate
         """
         
     def cellClickEvent(self, row, col):
         if row > 0:
-            ordNo = self.stockTable.item(row, 0).text()
-            ordGubun = self.stockTable.item(row, 10).text()
-            self.ordPrice = self.stockTable.item(row, 3).text()
-            self.ordQty = self.stockTable.item(row, 4).text()
+            ordNo = self.stockTable.cellWidget(row, 0).text()
+            ordGubun = self.stockTable.cellWidget(row, 10).text()
+            self.ordPrice = self.stockTable.cellWidget(row, 3).text()
+            self.ordQty = self.stockTable.cellWidget(row, 4).text()
             self.originOrdNo = ordNo
             self.trType = ordGubun
             print(f"선택한 주문번호 : {ordNo} {self.originOrdNo} {ordGubun} {self.ordPrice} {self.ordQty}")
@@ -101,22 +99,34 @@ class OrderInfoPop(QWidget):
         self.stockTable.setRowCount(len(assets) + 1)
         tableItems = ['주문번호', '종목명', '매매구분', '주문단가','주문수량','접수구분','주문시간','체결수량', '체결단가', '주문잔량','주문구분', '정정취소', '신용구분', '확인수량',  '반대여부',  '원주문',   '대출일',  '통신구분', '확인시간']
         # evalPrice = (nowPrice * qty) - (avgPrice * qty) - (nowPrice * (charge['fee'] * 2)) - (nowPrice * (charge['tax']))
+        canceledOrds = []
         for row, rowData in enumerate(assets):
             stockNm = assets[row]['종목명']
-            isExist = self.searchTable(stockNm)['isExist']
+            isExist = self.searchTable(self.stockTable, stockNm)['isExist']
             if isExist == False :
                 self.stockTable.insertRow(row +1)
                 for col, value in enumerate(tableItems) :
                     if value == "접수구분":
                         rowData[value] = "체결" if rowData['체결수량'] > 0 and rowData['주문잔량'] == 0 else "미체결"
-                    item = QTableWidgetItem(str(rowData[value]))
-                    item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-                    self.stockTable.setItem(row +1, col, item)
+                    elif rowData[value] == "취소":
+                        rowData['접수구분'] = "취소"
+                        posRow = self.searchTable(self.stockTable, rowData['원주문'])['posRow']
+                        canceledOrds.append(posRow)
+                        cellwid = self.stockTable.cellWidget(row+1, 5)
+                        cellwid.setText("주문취소")
+                    # item = QTableWidgetItem(str(rowData[value]))
+                    label = QLabel(str(rowData[value]))
+                    label.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                    # self.stockTable.setItem(row +1, col, item)
+                    self.stockTable.setCellWidget(row +1, col, label)
             else :
                 for col, value in enumerate(tableItems):
                     item = self.stockTable.item(row +1, col)
                     item.setText(str(rowData[value]))
+        for row in canceledOrds:
+            self.stockTable.removeRow(row)
         self.setTbGeometry(self.stockTable, 15, 100)
+        self.setTbStyle(self.stockTable)
         # self.mainWin.
             # for j in range(len(tableItems)) :
             #     item = QTableWidgetItem(str(assets[i][tableItems[j]]))
@@ -128,6 +138,15 @@ class OrderInfoPop(QWidget):
         
     #{'stockCd': 'A005930', 'stockNm': '삼성전자', 'qty': 1, 'avgPrice': 72800, 'nowPrice': 72700, 'evalPrice': 72055, 'earnPrice': -745, 'earnRate': -1.02, 'loanDate': '', 'boughtTotal': 72800, 'paymentBalance': 0}
     # 'stockNm' 'qty' 'avgPrice' 'nowPrice' 'evalPrice' 'earnPrice' 'earnRate' 'boughtTotal'
+    def searchTable(self, table, ordNo):
+        result = {'isExist': False}
+        for row in range(self.stockTable.rowCount()):
+            # item = table.item(row, 0)
+            item = table.cellWidget(row, 0)
+            if item and item.text() == ordNo :
+                result['isExist'] = True
+                result['posRow'] = row
+        return result
     def selectAccount(self, mode):
         if mode == "direct":
             accountNo = self.combo_box.currentText()
@@ -152,13 +171,14 @@ class OrderInfoPop(QWidget):
     def setTbStyle(self, target):
         if isinstance(target, QTableWidget):
             target.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-            # target.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            target.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             target.verticalHeader().setVisible(False)
             target.horizontalHeader().setVisible(False)
             target.setEditTriggers(QTableWidget.NoEditTriggers) #테이블 직접수정 불가
-            target.setStyleSheet("QTableWidget { border : none; gridline-color: white; border-top:10px}"
-                                       "QTableWidget::item:selected { background-color: transparent; }"
-                                       ) #테두리제거
+            target.setStyleSheet("""
+                QTableWidget { border : none; gridline-color: white; border-top:10px}
+                QTableWidget::item:selected { background-color: rgba(255, 255, 255, 0); color:black; }
+                                """) #테두리제거
         elif isinstance(target, QWidget) or isinstance(target, QMainWindow):
             target.setStyleSheet("background-color:white") #테두리제거
     def setTbGeometry(self, target, x, y, w = ""):
@@ -171,12 +191,3 @@ class OrderInfoPop(QWidget):
         for i in range(target.columnCount()):
             target.setColumnWidth(i, int(target.width() / target.columnCount())) 
             
-    def searchTable(self, value):
-        result = {'isExist': False}
-        for row in range(self.stockTable.rowCount()):
-            item = self.stockTable.item(row, 0)
-            if item and item.text() == value :
-                result['isExist'] = True
-                result['posRow'] = row
-        return result
-    
