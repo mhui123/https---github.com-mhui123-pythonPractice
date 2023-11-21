@@ -167,7 +167,7 @@ class HogaOrderWin(QWidget):
         if self.account_checked == True:
             accountNo = self.combo_box.currentText()
             self.myaccounts[accountNo] = True
-            self.inputPw.setText(parent_data['hogawinData']['accountPw'])
+            # self.inputPw.setText(parent_data['hogawinData']['accountPw'])
             self.selectAccount("direct")
             self.writeAccountInfo()
         

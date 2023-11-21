@@ -141,12 +141,16 @@ class MyWin(QMainWindow):
         for item in accounts :
             if len(item) > 0 :
                 self.accounts.append(item)
+        self.thisAccountNo = self.accounts[0]
+        data = {"purpose":"계좌조회", 'accountNo':self.thisAccountNo}
+        self.callApi(data)
+        
         # self.getMyAssetInfo() #보유잔고정보 조회
-
+        
         # self.ocx.KOA_Functions("ShowAccountWindow","")
         # self.code_edit.append(f"계좌번호 : {account_num}")
     
-    def getAccountInfo(self, accNo, accPw): #예수금상세현황요청    
+    def getAccountInfo(self, accNo): #예수금상세현황요청    
         self.setInputValue("계좌번호", accNo)
         self.setInputValue("비밀번호", "")
         self.setInputValue("조회구분", 2) #2 : 일반조회, 3 : 추정조회
@@ -641,7 +645,7 @@ class MyWin(QMainWindow):
         if purpose == "계좌조회":
             self.hogawin_data = data
             self.getMyAssetInfo(data['accountNo'])
-            self.getAccountInfo(data['accountNo'], data['accountPw'])
+            self.getAccountInfo(data['accountNo'])
         elif purpose == "주문":
             print(f"[주문테스트] {data}")
             originOrdNo = data['originOrdNo'] if 'originOrdNo' in data else None
