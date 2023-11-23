@@ -3,9 +3,12 @@ from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant
+import re
 
 #계좌별 자산, 주문현황 window
 class AssetWin(QWidget):
+    stockCds = None
+    REAL_REG_ON = False
     def __init__(self, parent):
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
         
@@ -26,7 +29,7 @@ class AssetWin(QWidget):
         #self.setGeometry(300,300,300,200)
         testBtn = QPushButton("test", self)
         testBtn.setGeometry(30,30,100,20)
-        testBtn.clicked.connect(self.callRealAsset)
+        testBtn.clicked.connect(self.test)
         
         self.combo_box = QComboBox(self)
         self.combo_box.currentIndexChanged.connect(self.selectAccount)
@@ -48,27 +51,35 @@ class AssetWin(QWidget):
             
         self.setTbStyle(self.stockTable)
         self.setTbGeometry(self.stockTable, 15, 100)
-        
     
     def test(self):
-        testCd = '068270'
-        self.mainWin.writeLog(f"{testCd} 현재가변경이벤트 테스트 시작")
-        self.mainWin.SetRealReg(self.SCREEN_NO, testCd, "10;", 0)
-        # print(f"{self.mainWin.myAssetInfos}")
-    def callRealAsset(self, stockCd):
-        stockCds = [item['stockCd'] for item in self.mainWin.myAssetInfos[self.mainWin.thisAccountNo]['assets']]
-        print(f"{stockCds}")
+        ""
+            
+    def callRealAsset(self):
+        if self.stockCds is None or len(self.stockCds) == 0 :
+            print(f"[callRealAsset] 주식코드들을 아직 받지 못했습니다.")
+        else :
+            list = []
+            for item in self.stockCds:
+                list.append(re.sub(r'[^0-9]', '', item))
+            self.stockCds = list
+            stockCds = ";".join(self.stockCds)
+            self.REAL_REG_ON = True
+            self.mainWin.SetRealReg(self.SCREEN_NO, stockCds, "10;", 0)
+        
     def gridStockList(self):
+        list = []
         charge = self.mainWin.charge[self.mainWin.MODE]
         assets = self.mainWin.myAssetInfos[self.mainWin.thisAccountNo]['assets']
         self.stockTable.setRowCount(len(assets) + 1)
         tableItems = ['stockNm','qty','avgPrice','nowPrice','evalPrice','earnPrice','earnRate','boughtTotal']
         # evalPrice = (nowPrice * qty) - (avgPrice * qty) - (nowPrice * (charge['fee'] * 2)) - (nowPrice * (charge['tax']))
         for row, rowData in enumerate(assets):
+            list.append(assets[row]['stockCd'])
             stockNm = assets[row]['stockNm']
             isExist = self.searchTable(stockNm)['isExist']
             nowTot = rowData['avgPrice'] * rowData['qty']
-            taxTot = rowData['nowPrice'] * rowData['qty']
+            taxTot = abs(rowData['nowPrice']) * rowData['qty']
             fee = int(nowTot * (charge['fee'] * 2) / 10) * 10
             tax = int(round(taxTot * (charge['tax'])))
             if isExist == False :
@@ -78,15 +89,18 @@ class AssetWin(QWidget):
                     item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
                     self.stockTable.setItem(row +1, col, item)
             else :
-                earnPrice = (rowData['nowPrice'] * rowData['qty']) - (rowData['avgPrice'] * rowData['qty']) - fee - tax
-                earnRate = round((earnPrice / rowData['nowPrice']) * 100, 2)
+                earnPrice = (abs(rowData['nowPrice']) * rowData['qty']) - (rowData['avgPrice'] * rowData['qty']) - fee - tax
+                earnRate = round((earnPrice / (abs(rowData['nowPrice']) * rowData['qty'])) * 100, 2)
                 rowData['earnPrice'] = earnPrice
                 rowData['earnRate'] = earnRate
-                # print(f"테이블수정 {stockNm} ({rowData['nowPrice']} * {rowData['qty']}) - ({rowData['avgPrice']} * {rowData['qty']}) - ({fee}) - ({tax}) = {earnPrice}\n {charge['fee']} : {charge['tax']}")
+                # print(f"테이블수정 {stockNm} ({rowData['nowPrice']} * {rowData['qty']}) - ({rowData['avgPrice']} * {rowData['qty']}) - ({fee}) - ({tax}) = {earnPrice}")
                 for col, value in enumerate(tableItems):
                     item = self.stockTable.item(row +1, col)
                     item.setText(str(rowData[value]))
         self.setTbGeometry(self.stockTable, 15, 100)
+        self.stockCds = list
+        if self.REAL_REG_ON == False : 
+            self.callRealAsset()
         # self.mainWin.
             # for j in range(len(tableItems)) :
             #     item = QTableWidgetItem(str(assets[i][tableItems[j]]))
