@@ -10,13 +10,51 @@ from PyQt5.QtCore import Qt, pyqtSignal, QVariant
 class HogaOrderWin(QWidget):
     # 보유종목 호출로직 필요.(매도)
     # 미체결내역 호출로직 필요 (정정,취소)
+    originOrdInfo = None
+    fixCancelOnOff = "OFF"
+    STOCK_NAME = ""
+    STOCK_CODE = ""
+    
     def __init__(self, parent, parent_data):
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
         self.parent = parent
         self.mainWin = self.parent.parent
         self.initUI(parent_data)
+        self.STOCK_NAME = parent.STOCK_NAME
+        self.STOCK_CODE = parent.STOCK_CODE
+        self.mainWin.NOW_ORD_CODE = self.STOCK_CODE
+        self.mainWin.NOW_ORD_NAME = self.STOCK_NAME
         parent.childSignal.connect(self.receiveAccountInfo)
         parent.posSignal.connect(self.posTest)
+        self.mainWin.originOrdNoChanged.connect(self.ordNoTest)
+        
+    @property
+    def turnFixCancelOnOff(self):
+        return self.fixCancelOnOff
+
+    @turnFixCancelOnOff.setter
+    def turnFixCancelOnOff(self, value):
+        self.fixCancelOnOff = value
+        self.on_variable_changed()
+
+    def on_variable_changed(self):
+        print("Variable changed:", self.fixCancelOnOff)
+        if self.turnFixCancelOnOff == "ON": self.btnWidget.show()
+        else : self.btnWidget.hide()
+        
+    def ordNoTest(self):
+        #self.mainWin.update_originOrdNo({"originOrdNo" : ordNo, "ordPrice" : self.ordPrice, "qty" : self.ordQty, "gubun" : "현금매도"})
+        self.originOrdInfo = self.mainWin.originOrdInfo
+        self.turnFixCancelOnOff = "ON"
+        print(f"[원주문번호 수신테스트] {self.originOrdInfo}")
+        ordPrice = format(int(self.originOrdInfo['ordPrice']), ",")
+        ordQty = format(int(self.originOrdInfo['qty']), ",")
+        self.inputPrice.setText(ordPrice)
+        self.inputQty.setText(ordQty)
+        
+    def resetOrderState(self):
+        self.turnFixCancelOnOff = "OFF"
+        self.originOrdInfo = None
         
     def posTest(self, data):
         x = data['x'] + self.parent.width()
@@ -38,9 +76,10 @@ class HogaOrderWin(QWidget):
         
         self.frame = QFrame(self)
         self.frame.setGeometry(5, 5, windowW - 10, windowH - 10)
-        self.frame.setStyleSheet(u"border: 1px solid rgba(0,0,0,255);background-color: rgba(255, 255, 255, 0);margin-left:5px;")
+        # self.frame.setStyleSheet(u"border: 1px solid rgba(0,0,0,255);background-color: rgba(255, 255, 255, 0);margin-left:5px;")
         
-        print(f"[hogawin initUi] parentData : {parent_data}")
+        # print(f"[hogawin initUi] parentData : {parent_data}")
+        
         self.hoga_interval = int(parent_data['hoga_interval'])
         self.order_hoga = int(parent_data['price'])
         self.purePw = ""
@@ -57,6 +96,7 @@ class HogaOrderWin(QWidget):
         self.combo_box = QComboBox(self)
         self.inputPw = QLineEdit(self)
         self.inputPw.setPlaceholderText("계좌비밀번호")
+        self.inputPw.hide()
         self.callOrderInfoBtn = QPushButton("주문조회", self)
         self.inputQty = QLineEdit(self)
         self.inputQty.setPlaceholderText("수량")
@@ -65,7 +105,7 @@ class HogaOrderWin(QWidget):
         self.accountTable = QTableWidget(self)
         self.tableWidget = QTableWidget(self)
         self.ordTable = QTableWidget(self)
-        self.inputPw.hide()
+        
         
         
         #계좌번호 비밀번호입력
@@ -85,7 +125,8 @@ class HogaOrderWin(QWidget):
         self.accountTable.setCellWidget(0,0, self.combo_box)
         self.accountTable.setCellWidget(0,1, self.callOrderInfoBtn)
         self.accountTable.setCellWidget(0,2, self.checkBtn)
-        self.accountTable.setStyleSheet("QTableWidget { border : none; gridline-color: white}") #테두리제거
+        # self.accountTable.setStyleSheet("QTableWidget { border : none; gridline-color: none}") #테두리제거
+        # self.accountTable.setStyleSheet("QTableWidget { border : none;}") #테두리제거
         
         x = 15
         y = 15
@@ -95,17 +136,13 @@ class HogaOrderWin(QWidget):
         self.inputPw.textChanged.connect(self.maskingPw)
         self.checkBtn.clicked.connect(self.getAccountInfo)
         
-        
-        self.tableWidget.setColumnCount(5) # 3열
-        self.tableWidget.setRowCount(1) # 20행
-        
         plusBtn = QPushButton("+", self)
         minusBtn = QPushButton("-", self)
         buyBtn = QPushButton("매수", self)
         sellBtn = QPushButton("매도", self)
         
-        # item = QTableWidgetItem(format(parent_data['price'],","))
-        # self.tableWidget.setItem(0, 2, item)
+        self.tableWidget.setColumnCount(5) # 3열
+        self.tableWidget.setRowCount(1) # 20행
         self.inputPrice.setText(format(parent_data['price'],","))
         self.tableWidget.setCellWidget(0, 0, buyBtn)
         self.tableWidget.setCellWidget(0, 1, minusBtn)
@@ -117,7 +154,7 @@ class HogaOrderWin(QWidget):
         y = self.accountTable.height() + 5 + 15
         self.setTbGeometry(self.tableWidget, x, y)
         
-        self.setStyle(self)
+        # self.setStyle(self)
         self.setStyle(self.accountTable)
         self.setStyle(self.tableWidget)
         self.setStyle(self.ordTable)
@@ -132,23 +169,16 @@ class HogaOrderWin(QWidget):
         widget = QWidget()
         widget.setLayout(layout)
         
-        # self.inputAsPrice = QPushButton("금액으로 수량입력")
-        # self.inputAsPrice.clicked.connect(self.priceToQty)
         
         self.ordTable.setColumnCount(2) # 3열
         self.ordTable.setRowCount(4) # 20행
         col_width = self.ordTable.columnWidth(0)
         col_cnt = self.ordTable.columnCount()
-        # row_height = self.ordTable.rowHeight(0)
-        # row_cnt = self.ordTable.rowCount()
-        # tbY = self.tableWidget.height() + self.accountTable.height() + 10
-        # self.ordTable.setGeometry( 50, tbY, col_width * col_cnt , row_cnt * row_height)
         
         x = 50
         y = self.tableWidget.height() + self.accountTable.height() + 10 + 15
         self.setTbGeometry(self.ordTable, x, y, col_width * col_cnt)
         
-        # self.ordTable(self.tableWidget, x, y)
         self.ordTable.setCellWidget(0,0, self.inputQty)
         self.ordTable.setCellWidget(0,1, widget)
         
@@ -171,14 +201,36 @@ class HogaOrderWin(QWidget):
             self.selectAccount("direct")
             self.writeAccountInfo()
         
-        # hideTest = QPushButton("test", self)
-        # hideTest.move(0, 200)
-        # hideTest.clicked.connect(self.btnHideShow)
+        mainContainer = QVBoxLayout(self.frame)
+        topLayer = QGridLayout()
+        mainContainer.addLayout(topLayer)
+        # mainContainer.addLayout(bottomLayer)
+        
+        
+        btnGroups = QHBoxLayout()
+        fBtn = QPushButton("정정")
+        cBtn = QPushButton("취소")
+        fBtn.clicked.connect(self.callTradeEvent)
+        cBtn.clicked.connect(self.callTradeEvent)
+        
+        btnGroups.addWidget(fBtn)
+        btnGroups.addWidget(cBtn)
+        self.btnWidget = QWidget()
+        self.btnWidget.setLayout(btnGroups)
+        self.btnWidget.hide()
+        
+        topLayer.addWidget(self.accountTable,0,0)
+        topLayer.addWidget(self.tableWidget,1,0)
+        topLayer.addWidget(self.btnWidget,2,0)
+        topLayer.addWidget(self.ordTable,3,0)
+        
+        
+        
     def priceToQty(self):
         price = self.filtNumber(self.inputQty.text())
         qty = int(price / self.order_hoga)
         return qty
-        
+    
     def writeAccountInfo(self):
         label = QLabel(f"주문가능금액 : {format(self.myUsableCash, ',')}")
         qtyLabel = QLabel(f"보유수량 : {self.myQty}")
@@ -259,7 +311,9 @@ class HogaOrderWin(QWidget):
             sender = self.sender()
             print(f"거래요청 버튼 : {sender.text()}")
             if self.validateInputQty(sender.text()) == True :
-                ordType = "신규매수" if sender.text() == "매수" else "신규매도" #정정주문 : "매수정정" "매도정정" 취소주문: "매수취소" "매도취소"
+                senderName = sender.text()
+                #self.originOrdInfo = ({"originOrdNo" : ordNo, "ordPrice" : self.ordPrice, "qty" : self.ordQty, "gubun" : "현금매도"})
+                ordType = "신규" + senderName
                 accountNo = self.combo_box.currentText()
                 ordPrice = self.filtNumber(self.inputPrice.text())
                 
@@ -268,6 +322,11 @@ class HogaOrderWin(QWidget):
                 ordQty = self.qty
                 purpose = "주문"
                 data = {"purpose":purpose,"accountNo" : accountNo, "ordQty":ordQty, "ordPrice":ordPrice, "ordType":ordType}
+                if self.originOrdInfo is not None and len(self.originOrdInfo) > 0 :
+                    gubunTxt = self.originOrdInfo['gubun'][2:4]
+                    data['ordType'] = gubunTxt + senderName
+                    data['originOrdNo'] = self.originOrdInfo['originOrdNo']
+                    self.resetOrderState()
                 # self.parent.passToMain(data)
                 self.mainWin.callApi(data)
     
@@ -386,11 +445,14 @@ class HogaOrderWin(QWidget):
             target.verticalHeader().setVisible(False)
             target.horizontalHeader().setVisible(False)
             target.setEditTriggers(QTableWidget.NoEditTriggers) #테이블 직접수정 불가
-            target.setStyleSheet("QTableWidget { border : none; gridline-color: white; border-top:10px}"
-                                       "QTableWidget::item:selected { background-color: transparent; }"
-                                       ) #테두리제거
         elif isinstance(target, QWidget) or isinstance(target, QMainWindow):
             target.setStyleSheet("background-color:white") #테두리제거
+        target.setStyleSheet("""
+                QTableWidget { border : none; gridline-color: rgba(255, 255, 255, 0);}
+                QTableWidget::item:selected { background-color: rgba(255, 255, 255, 0); color:black; }
+                /*QLabel {border : none; gridline-color: white;}
+                QWidget {border : none;}*/
+            """) #테두리제거
             
     def setTbGeometry(self, target, x, y, w = ""):
         if isinstance(target, QTableWidget):

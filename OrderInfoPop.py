@@ -3,14 +3,21 @@ from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant
-
+import re
 #계좌별 자산, 주문현황 window
 class OrderInfoPop(QWidget):
+    STOCK_NAME = ""
+    STOCK_CODE = ""
     def __init__(self, parent):
+        self.STOCK_NAME = parent.stockName
+        self.STOCK_CODE = parent.stockCode
         super().__init__()  # 수정: QWidget 클래스의 생성자에 self를 전달
         self.mainWin = parent
         self.originOrdNo = None
         self.trType = None
+        self.ordQty = 0
+        self.fixQty = 0
+        self.gridMode = "YET"
         
         self.initUI()
 
@@ -23,28 +30,43 @@ class OrderInfoPop(QWidget):
         self.frame = QFrame(self)
         self.frame.setGeometry(5, 5, windowW - 10, windowH - 10)
         self.frame.setStyleSheet(u"border: 1px solid rgba(0,0,0,255);background-color: rgba(255, 255, 255, 0);margin-left:5px;")
+        
+        mainContainer = QVBoxLayout(self.frame)
+        btnGrid = QGridLayout()
+        tbGrid = QGridLayout()
+        editGrid = QGridLayout()
+        
+        mainContainer.addLayout(tbGrid)
+        # mainContainer.addLayout(editGrid)
+        # mainContainer.addLayout(btnGrid)
+        
         #self.setGeometry(300,300,300,200)
         testBtn = QPushButton("test", self)
-        testBtn.setGeometry(30,30,100,20)
-        testBtn.clicked.connect(self.test)
         fixBtn = QPushButton("정정", self)
-        fixBtn.setGeometry(70,30,100,20)
-        fixBtn.clicked.connect(self.fixCancel)
         cBtn = QPushButton("취소", self)
-        cBtn.setGeometry(100,30,100,20)
+        
+        btnGrid.addWidget(testBtn, 0, 0)
+        btnGrid.addWidget(fixBtn, 0, 1)
+        btnGrid.addWidget(cBtn, 0, 2)
+        
+        testBtn.clicked.connect(self.test)
+        fixBtn.clicked.connect(self.fixCancel)
         cBtn.clicked.connect(self.fixCancel)
+        
+        self.qtyEdit = QLineEdit()
+        self.qtyEdit.setPlaceholderText("정정수량")
+        self.qtyEdit.setMaximumWidth(50)
+        self.qtyEdit.textEdited.connect(self.chkValid)
+        editGrid.addWidget(self.qtyEdit)
+        # cBtn.setGeometry(100,30,30,20)
         
         self.mainWin.orderInfoChanged.connect(self.update_orderInfo)
         
-        
-        """
-        #{'주문번호': '0031931', '종목번호': 'A035600', '매매구분': '보통가', '신용구분': '보통매매', '주문수량': 1, '주문단가': 11330, '확인수량': 1, '접수구분': '주문완료
-', '반대여부': '', '주문시간': '09:19:55', '원주문': '0000000', '종목명': 'KG이니시스', '주문구분': '현금매수', '대출일': '', '체결수량': 0, '체결단가': 0, '주문잔량': 1, '통신구분': '오픈API', '정정
-취소': '일반', '확인시간': '09:19:55'}
-        """
         tbHeaders = ['주문번호', '종목명', '매매구분', '주문단가','주문수량','접수구분','주문시간','체결수량', '체결단가', '주문잔량','주문구분', '정정취소', '신용구분', '확인수량',  '반대여부',  '원주문',   '대출일',  '통신구분', '확인시간']
         
         self.stockTable = QTableWidget(self)
+        
+        tbGrid.addWidget(self.stockTable, 0, 0)
         self.stockTable.setColumnCount(len(tbHeaders))
         self.stockTable.insertRow(0)
         for i in range(self.stockTable.columnCount()):
@@ -53,16 +75,25 @@ class OrderInfoPop(QWidget):
             self.stockTable.setItem(0, i, item)
             
         self.stockTable.cellClicked.connect(self.cellClickEvent)
+    def chkValid(self):
+        text = str(self.filtNumber(self.sender().text()))
+        self.sender().setText(text)
+        
+    def filtNumber(self, data):
+        data = re.sub(r'[^0-9]', '', data)
+        return int(data) if len(data) > 0 and isinstance(data, str) else 0
+    
     def update_orderInfo(self):
-        print(f"[orderInfo update test] : {self.mainWin.orderInfos}")
         self.gridList()
         
     def test(self):
-        print(f"[orderInfo update test] : {self.mainWin.orderInfos[0]}")
+        text = "주문없음" if len(self.mainWin.orderInfos) == 0 else self.mainWin.orderInfos[0]
+        print(f"[orderInfo update test] : {text} {self.qtyEdit.text()}")
         # print(f"{self.mainWin.myAssetInfos}")
     def fixCancel(self):
         txt = self.sender().text()
         if txt == "정정" :
+            self.ordQty = self.qtyEdit.text()
             print(f"정정 이벤트 구현필요")
         elif txt == "취소" :
             print(f"취소 이벤트 구현필요")
@@ -94,11 +125,15 @@ class OrderInfoPop(QWidget):
             self.originOrdNo = ordNo
             self.trType = ordGubun
             print(f"선택한 주문번호 : {ordNo} {self.originOrdNo} {ordGubun} {self.ordPrice} {self.ordQty}")
+            self.mainWin.update_originOrdNo({"originOrdNo" : ordNo, "ordPrice" : self.ordPrice, "qty" : self.ordQty, "gubun":ordGubun})
+            self.close()
     def gridList(self):
         assets = self.mainWin.orderInfos
         self.stockTable.setRowCount(len(assets) + 1)
         tableItems = ['주문번호', '종목명', '매매구분', '주문단가','주문수량','접수구분','주문시간','체결수량', '체결단가', '주문잔량','주문구분', '정정취소', '신용구분', '확인수량',  '반대여부',  '원주문',   '대출일',  '통신구분', '확인시간']
-        # evalPrice = (nowPrice * qty) - (avgPrice * qty) - (nowPrice * (charge['fee'] * 2)) - (nowPrice * (charge['tax']))
+        notYetDeals = [item for item in self.mainWin.orderInfos if item['종목명'] == self.STOCK_NAME and item['주문잔량'] > 0]
+        if self.gridMode == "YET":
+            assets = notYetDeals
         canceledOrds = []
         for row, rowData in enumerate(assets):
             stockNm = assets[row]['종목명']
@@ -127,17 +162,7 @@ class OrderInfoPop(QWidget):
             self.stockTable.removeRow(row)
         self.setTbGeometry(self.stockTable, 15, 100)
         self.setTbStyle(self.stockTable)
-        # self.mainWin.
-            # for j in range(len(tableItems)) :
-            #     item = QTableWidgetItem(str(assets[i][tableItems[j]]))
-            #     item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-            #     self.stockTable.insertRow(1)
-            #     self.stockTable.setItem(i +1, j, item)
-            #     print(f"[테이블세팅] ({self.stockTable.rowCount()} {self.stockTable.columnCount()})  r : {i} c : {j} {str(assets[i][tableItems[j]])}")
         
-        
-    #{'stockCd': 'A005930', 'stockNm': '삼성전자', 'qty': 1, 'avgPrice': 72800, 'nowPrice': 72700, 'evalPrice': 72055, 'earnPrice': -745, 'earnRate': -1.02, 'loanDate': '', 'boughtTotal': 72800, 'paymentBalance': 0}
-    # 'stockNm' 'qty' 'avgPrice' 'nowPrice' 'evalPrice' 'earnPrice' 'earnRate' 'boughtTotal'
     def searchTable(self, table, ordNo):
         result = {'isExist': False}
         for row in range(self.stockTable.rowCount()):
@@ -168,17 +193,19 @@ class OrderInfoPop(QWidget):
         """
         # 즉, 호가창에서 계좌조회할 떄도 미리 계좌주문정보(현재 미요청)도 같이 넣도록 작성해야할 듯.
         """
-    def setTbStyle(self, target):
+    def setTbStyle(self, target, policy = None):
         if isinstance(target, QTableWidget):
-            target.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-            target.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            policy = QtCore.Qt.ScrollBarAlwaysOff if policy == None else 1
+            target.setVerticalScrollBarPolicy(policy)
+            target.setHorizontalScrollBarPolicy(policy)
             target.verticalHeader().setVisible(False)
             target.horizontalHeader().setVisible(False)
             target.setEditTriggers(QTableWidget.NoEditTriggers) #테이블 직접수정 불가
             target.setStyleSheet("""
-                QTableWidget { border : none; gridline-color: white; border-top:10px}
+                QTableWidget { border : none; gridline-color: rgba(255, 255, 255, 0);}
                 QTableWidget::item:selected { background-color: rgba(255, 255, 255, 0); color:black; }
-                                """) #테두리제거
+                QLabel {border : none; gridline-color: white;}
+            """) #테두리제거
         elif isinstance(target, QWidget) or isinstance(target, QMainWindow):
             target.setStyleSheet("background-color:white") #테두리제거
     def setTbGeometry(self, target, x, y, w = ""):

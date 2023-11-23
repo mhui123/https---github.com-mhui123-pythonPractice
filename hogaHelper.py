@@ -46,6 +46,10 @@ class MyWin(QMainWindow):
     accountInfoChanged = pyqtSignal(QVariant)
     assetInfoChanged = pyqtSignal(QVariant)
     orderInfoChanged = pyqtSignal(QVariant)
+    originOrdNoChanged = pyqtSignal(QVariant)
+    originOrdInfo = None
+    NOW_ORD_CODE = None
+    NOW_ORD_NAME = None
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -391,6 +395,10 @@ class MyWin(QMainWindow):
         self.assetInfoChanged.emit(self.myAssetInfos)
     def update_orderInfo(self):
         self.orderInfoChanged.emit(self.orderInfos)
+    def update_originOrdNo(self, data={}):
+        if len(data) > 0 :
+            self.originOrdInfo = data
+            self.originOrdNoChanged.emit(self.originOrdInfo)
             
     def receive_chejan(self, data): #sendOrder결과 이벤트
         fidList = {
