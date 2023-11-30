@@ -5,6 +5,7 @@ from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant
 from HogaOrderWin import *
+from JsonControl import *
 
 #호가창class
 class HogaWin(QWidget):
@@ -70,6 +71,10 @@ class HogaWin(QWidget):
         self.changeModeBtn = QPushButton("수량으로 보기", self)
         self.changeModeBtn.setGeometry(100, 675, 100, 30)
         self.changeModeBtn.clicked.connect(self.changeMode)
+        
+        addInterestBtn = QPushButton("관심종목에 추가", self)
+        addInterestBtn.setGeometry(150, 675, 100, 30)
+        addInterestBtn.clicked.connect(self.addToInterestList)
         
         # sendTestBtn.move(20,20)
         
@@ -231,6 +236,16 @@ class HogaWin(QWidget):
                 self.infoTable.item(0, 1).setText(f"{pChange}({movePercent}%)")
                 self.infoTable.item(1, 0).setText(f"{nowPrice}")
                 self.infoTable.item(1, 1).setText(f"{tAmt}")
+    
+    def addToInterestList(self):
+        """
+            관심종목 추가 이벤트.
+        """
+        listData = readJson("interestList")
+        if len(listData) >= 0 :
+            listData[self.STOCK_NAME] = self.STOCK_CODE
+            writeJson("interestList", listData)
+        
                 
     def handle_tbItem_click(self, item):
         row = item.row()
