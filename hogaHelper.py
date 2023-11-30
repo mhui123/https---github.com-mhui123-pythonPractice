@@ -265,7 +265,12 @@ class MyWin(QMainWindow):
         if len(code) > 0 :
             # self.ocx.dynamicCall("SetInputValue(QString, QString)", itemNm, code)
             self.setInputValue(itemNm, code)
-        self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",rqName, trCode, isContinue, screenNo)
+        result = self.ocx.dynamicCall("CommRqData(QString, QString, int, QString)",rqName, trCode, isContinue, screenNo)
+        if result == -202 : #계좌비밀번호 입력필요.
+            print(f"계좌 비밀번호 입력설정창을 연다.")    
+            showAlert(f"계좌비밀번호를 저장하고 프로그램을 재실행해야합니다.")
+            self.ocx.KOA_Functions("ShowAccountWindow","")
+        
     
     def receive_trdata(self, screenNo, rqName, trCode, recordName, preNext): #API 응답이벤트
         #복수데이터의 경우 idx가 항목 순서이다.
