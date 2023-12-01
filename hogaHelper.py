@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QVariant, QEvent
 from HogaWin import *
 from AssetWin import *
 from OrderInfoPop import *
+from InterestPopup import *
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -47,9 +48,12 @@ class MyWin(QMainWindow):
     assetInfoChanged = pyqtSignal(QVariant)
     orderInfoChanged = pyqtSignal(QVariant)
     originOrdNoChanged = pyqtSignal(QVariant)
+    interListInfoChanged = pyqtSignal(QVariant)
+    
     originOrdInfo = None
     NOW_ORD_CODE = None
     NOW_ORD_NAME = None
+    REQ_OCCUPY = False
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -76,6 +80,7 @@ class MyWin(QMainWindow):
         self.myAssetInfos = {}
         self.orderInfos = []
         self.thisAccountNo = None
+        self.stockBasicInfo = {}
         
         self.myCash = 0
         self.myUsableCash = 0
@@ -121,9 +126,16 @@ class MyWin(QMainWindow):
         layout = QVBoxLayout(self)
         layout.addWidget(self.code_edit)
         
-        testBtn = QPushButton("test", self)
-        testBtn.move(190, self.height() - testBtn.height() - self.statusBar().height())
-        testBtn.clicked.connect(self.test)
+        myStockBtn = QPushButton("보유종목", self)
+        # myStockBtn.move(190, self.height() - myStockBtn.height() - self.statusBar().height())
+        myStockBtn.clicked.connect(self.openMyStocks)
+        
+        interStockBtn = QPushButton("관심종목", self)
+        # interStockBtn.move(190, self.height() - interStockBtn.height() - self.statusBar().height())
+        interStockBtn.clicked.connect(self.openInterStocks)
+        btns = QVBoxLayout(self)
+        btns.addWidget(myStockBtn)
+        btns.addWidget(interStockBtn)
         
         self.isClicked = False
     def writeLog(self, text):
@@ -135,6 +147,7 @@ class MyWin(QMainWindow):
         self.ocx.OnEventConnect.connect(self.loginResult)
         
     def loginResult(self, err_code):
+        
         errCodes = {"0" : "로그인 성공", "101" : "정보교환 실패", "102" : "서버접속 실패", "103" : "버전처리 실패"}
         self.statusBar().showMessage(errCodes[str(err_code)])
         if errCodes[str(err_code)] == "로그인 성공":
@@ -153,7 +166,17 @@ class MyWin(QMainWindow):
         
         # self.ocx.KOA_Functions("ShowAccountWindow","")
         # self.code_edit.append(f"계좌번호 : {account_num}")
-    
+    def getStockBasicInfo(self, code, screenNo = "0111"): #주식기본정보 요청
+        # if isinstance(code, list):
+        #     for item in code :
+        #         self.REQ_OCCUPY = True
+        #         self.requestData("opt10001", "종목코드", item, screenNo)
+        #         time.sleep(0.3)    
+                
+                
+        # else :
+        self.requestData("opt10001", "종목코드", code, screenNo)
+        
     def getAccountInfo(self, accNo): #예수금상세현황요청    
         self.setInputValue("계좌번호", accNo)
         self.setInputValue("비밀번호", "")
@@ -186,15 +209,10 @@ class MyWin(QMainWindow):
         self.setInputValue("조회구분", "2") # 1:합산 2:개별
         self.requestData("opw00004", "", '0', "0346") #계좌평가잔고내역
                 
-    def update_hoga(self): #호가창 업데이트
-        self.dataChanged.emit(self.hoga_dict)
-        self.stockInfoChanged.emit(self.stock_info)
-    def update_account_info(self): #호가창 종목정보 업데이트
-        toSend = {"myCash" : self.myCash, "myUsableCash" : self.myUsableCash, "hogawinData": self.hogawin_data}
-        self.accountInfoChanged.emit(toSend)
-    
-    def test(self):
-        self.openPopup("test")
+    def openMyStocks(self):
+        self.openPopup("openMyStocks")
+    def openInterStocks(self):
+        self.openPopup("openInterStocks")
     def typing(self): #종목명 타이핑 이벤트
         word_list = []
         
@@ -237,18 +255,28 @@ class MyWin(QMainWindow):
         else :
             self.text_edit.append("정확한 종목명을 입력하여 조회해주세요.")
     
-    def call_hogaData(self): #호가창 호출이벤트
-        code = self.stockCode
+    def determinTime(self):
         current_time = datetime.datetime.now()
         hourMin = int(current_time.strftime("%H%M"))
-        
+        time = None
         if hourMin < 1530 and hourMin >= 900:
-            self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
-            # 41:매도호가1 61:매도호가수량1 81:매도호가직전대비1;51:매수호가1;71:매수호가수량1;91:매수호가직전대비1
+            time = "장중"
         elif hourMin > 0 and hourMin < 900:
-            self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
+            time = "장시작전"
         else :
+            time = "장마감"
+        return time
+    
+    def call_hogaData(self): #호가창 호출이벤트
+        code = self.stockCode
+        time = self.determinTime()
+        if time == "장중":
+            self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
+        elif time == "장시작전":
+            self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
+        elif time == "장마감":
             self.text_edit.append("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
+        
         self.requestData("opt10004", "종목코드", code, "0111")
         
             
@@ -258,7 +286,7 @@ class MyWin(QMainWindow):
     def setInputValue(self, itemName, code): #api 데이터요청용 값 입력
         self.ocx.dynamicCall("SetInputValue(QString, QString)", itemName, code)
     
-    def requestData(self, trCode, itemNm, code, screenNo, isContinue = 0): #api 데이터요청
+    def requestData(self, trCode, itemNm, code, screenNo, isContinue = False): #api 데이터요청
         isContinue = 2 if isContinue == True else 0
         rqName = trCode+"_req"
         #조회요청 시 SetInputValue로 parameter지정 후 CommRqData로 요청한다.
@@ -278,14 +306,23 @@ class MyWin(QMainWindow):
         print(f"[receive_trdata] nCnt: {nCnt} trCode:{trCode}, rqName:{rqName}")
         # for i in range(0, nCnt):
         if rqName == "opt10001_req": #종목정보 조회
+            output = ["종목명", "종목코드", "시가", "고가", "저가", "상한가", "하한가", "기준가", "연중최고", "연중최저", "250최고", "250최저"
+                      ,"전일대비", "등락율", "거래량", "거래대비", "현재가", "대비기호"]
+            
             name = self.getCommData(trCode, rqName, "종목명")
-            self.stockMaxPrice = self.getCommData(trCode, rqName, "상한가").strip()
-            self.stockMinPrice = self.getCommData(trCode, rqName, "하한가").strip()
-            self.nowP = self.getCommData(trCode, rqName, "현재가").strip()
-            self.nowTAmt = self.getCommData(trCode, rqName, "거래량").strip()
-            self.nowChangePer = self.getCommData(trCode, rqName, "등락율").strip()
-            self.nowChangePrice = self.getCommData(trCode, rqName, "전일대비").strip()
             self.writeLog(f"조회종목 : {name.strip()}({self.stockCode})")
+            temp = {}
+            #set stockBasicInfo
+            for item in output:
+                value = classifyNumStr(self.getCommData(trCode, rqName, item).strip())
+                temp[item] = value
+            temp['전일대비,등락율'] = f"{temp['전일대비']} ({temp['등락율']}%)"
+            self.stockBasicInfo[name] = temp
+            if screenNo == "0150" :
+                #관심종목창에서 호출
+                self.update_InterListInfo(self.stockBasicInfo)
+                self.REQ_OCCUPY = False
+                
         elif rqName == "opw00001_req": #예수금상세현황요청
             self.myCash = int(self.getCommData(trCode, rqName, "예수금").strip())
             self.myUsableCash = int(self.getCommData(trCode, rqName, "주문가능금액").strip())
@@ -395,7 +432,15 @@ class MyWin(QMainWindow):
             
             self.openPopup("hogaWin")
             self.update_hoga()
-            
+    
+    def update_hoga(self): #호가창 업데이트
+        self.dataChanged.emit(self.hoga_dict)
+        self.stockInfoChanged.emit(self.stock_info)
+    
+    def update_account_info(self): #호가창 종목정보 업데이트
+        toSend = {"myCash" : self.myCash, "myUsableCash" : self.myUsableCash, "hogawinData": self.hogawin_data}
+        self.accountInfoChanged.emit(toSend)
+          
     def update_assetData(self):
         self.assetInfoChanged.emit(self.myAssetInfos)
     def update_orderInfo(self):
@@ -404,6 +449,13 @@ class MyWin(QMainWindow):
         if len(data) > 0 :
             self.originOrdInfo = data
             self.originOrdNoChanged.emit(self.originOrdInfo)
+            
+    def update_InterListInfo(self, data = {}):
+        self.update_signal(self.interListInfoChanged, data)
+            
+    def update_signal(self, signal, data={}):
+        if hasattr(signal, 'emit') and len(data) > 0:
+            signal.emit(data)
             
     def receive_chejan(self, data): #sendOrder결과 이벤트
         fidList = {
@@ -579,13 +631,16 @@ class MyWin(QMainWindow):
             fString = f"주식체결 ::: {self.stockName}( {code} )"
             fInfos = f" {self.stockName} 현재가:{nowPrice} 누적거래량 {accAmt} 누적거래대금 {accPrice} 가격변동:{priceChange} 등락률:{movePercent}"
             # print(fString, fInfos)
+            
+            print(f"주식체결 확인 : {fInfos}")
+            # 관심종목창에 데이터 전달할 필요.
             if self.thisAccountNo is not None: self.comparePrice(code, int(nowPrice))
         elif real_type == "주식우선호가":
             #호가틱이 변동될 때 발생하는 이벤트.
             now = datetime.datetime.now()
             ask01 =  self.GetCommRealData(code, 27)         
             bid01 =  self.GetCommRealData(code, 28)
-            print(f"현재시간 {now} | 최우선매도호가: {ask01} 최우선매수호가: {bid01}")
+            # print(f"현재시간 {now} | 최우선매도호가: {ask01} 최우선매수호가: {bid01}")
         elif real_type == "주식시세":
             nowP = self.GetCommRealData(code, 10)
             print(f"[실시간잔고] {code} {nowP}")
@@ -634,12 +689,15 @@ class MyWin(QMainWindow):
             toPassData = {"account":self.accounts, "myCash":self.myCash, "myUsableCash" : self.myUsableCash, "hogawinData": self.hogawin_data, "myAssetInfo":self.myAssetInfo}
             self.hogaWin = HogaWin(self, toPassData)
             self.hogaWin.show()
-        elif purpose == "test":
+        elif purpose == "openMyStocks":
             self.assetWin = AssetWin(self)
             self.assetWin.show()
         elif purpose == "orderInfoPop":
             self.orderInfoPop = OrderInfoPop(self)
             self.orderInfoPop.show()
+        elif purpose == "openInterStocks":
+            self.interWin = InterestPopup(self)
+            self.interWin.show()
     
     def comparePrice(self, code, nowPrice):
         if hasattr(self, "assetWin"):
@@ -676,6 +734,8 @@ class MyWin(QMainWindow):
             self.assetWin.close()
         if hasattr(self, "orderInfoPop"):
             self.orderInfoPop.close()
+        if hasattr(self, "interWin"):
+            self.interWin.close()
         event.accept() #프로그램 종료 . 이벤트 회수?
     
     def resizeEvent(self, event): #창크기변경 이벤트
@@ -699,6 +759,18 @@ def main():
     window.show()
     # app.exec_()
     sys.exit(app.exec_())
+    
+def classifyNumStr(data):
+    """
+        입력값 분류함수 : 데이터가 str인지 number인지 판단하여 해당값만 남겨 반환.
+    """
+    filtNum = re.sub(r'[^0-9.+-]', '', data)
+    returnData = None
+    if len(filtNum) > 0 : #number
+        returnData = float(filtNum) if '.' in filtNum else int(filtNum)
+    else :
+        returnData = data
+    return returnData
 
 if __name__ == "__main__":  
     main()

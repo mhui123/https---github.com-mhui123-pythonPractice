@@ -22,7 +22,7 @@ def writeJson(fileNm, data):
     try:
         with open(file, 'w') as json_file:
             json.dump(data, json_file)
-            print(f"json file has been created")
+            print(f"json file has been writen as new")
     except FileNotFoundError:
         folderChk(ROOT_PATH)
         writeJson(fileNm, data)
@@ -37,7 +37,8 @@ def readJson(fileNm):
             return data
     except FileNotFoundError:
         folderChk(ROOT_PATH)
-        print(f"{file}을 찾을 수 없습니다.")    
+        print(f"{file}을 찾을 수 없습니다.")
+            
         
 def delJson(fileNm):
     file = f"{ROOT_PATH}/{fileNm}.json"
