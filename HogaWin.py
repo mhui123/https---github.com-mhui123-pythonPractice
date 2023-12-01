@@ -4,8 +4,16 @@ from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant
+from PyQt5.QtGui import QFont, QColor, QFontInfo
 from HogaOrderWin import *
 from JsonControl import *
+
+app = QApplication([])
+current_font = app.font()
+# Get the font info
+font_info = QFontInfo(current_font)
+# Get the font family name
+font_family_name = font_info.family()
 
 #호가창class
 class HogaWin(QWidget):
@@ -72,9 +80,13 @@ class HogaWin(QWidget):
         self.changeModeBtn.setGeometry(100, 675, 100, 30)
         self.changeModeBtn.clicked.connect(self.changeMode)
         
-        addInterestBtn = QPushButton("관심종목에 추가", self)
-        addInterestBtn.setGeometry(150, 675, 100, 30)
-        addInterestBtn.clicked.connect(self.addToInterestList)
+        self.addInterestBtn = QPushButton("관심종목에 추가", self)
+        self.addInterestBtn.setGeometry(210, 675, 100, 30)
+        recommended_size = self.addInterestBtn.sizeHint()
+        self.addInterestBtn.setFixedSize(recommended_size)
+        
+        self.readInterestList()
+        self.addInterestBtn.clicked.connect(self.addToInterestList)
         
         # sendTestBtn.move(20,20)
         
@@ -84,25 +96,25 @@ class HogaWin(QWidget):
         self.infoTable.setColumnCount(2) # 2열
         self.infoTable.setRowCount(3) # 3행
         
-        """
-        self.nowP = 0 #현재가
-        self.nowTAmt = 0 #거래량
-        self.nowChangePer = 0 #등락률
-        self.nowChangePrice = 0 #전일대비
-        """
-        item = QTableWidgetItem(self.parent.stockName)
-        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-        self.infoTable.setItem(0, 0, item)
-        item = QTableWidgetItem(f"{int(self.parent.nowP)}")
-        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-        self.infoTable.setItem(1, 0, item)
-        item = QTableWidgetItem(f"{self.parent.nowChangePrice} ({self.parent.nowChangePer})")
-        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-        self.infoTable.setItem(0, 1, item)
-        item = QTableWidgetItem(f"{self.parent.nowTAmt}")
-        item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
-        self.infoTable.setItem(1, 1, item)
+        source = self.parent.stockBasicInfo[self.STOCK_NAME]
         
+        temp = [['종목명', '전일대비,등락율'], ['현재가', '거래량']]
+        for row in range(2):
+            for col in range(2):
+                key = temp[row][col]
+                data = format(abs(source[key]), ',') if isinstance(source[key], int) else source[key]
+                item = QTableWidgetItem(data)
+                item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+                #색상결정 +: red -: blue
+                if key == "현재가":
+                    font = QFont(font_family_name, 12, QFont.Bold)
+                    item.setFont(font)
+                    if source[key] > 0 :
+                        item.setForeground(QColor("red"))
+                    else :
+                        item.setForeground(QColor("blue"))
+                self.infoTable.setItem(row, col, item)
+                
         self.infoTable.verticalHeader().setVisible(False)
         self.infoTable.horizontalHeader().setVisible(False)
         self.infoTable.setColumnWidth(0, int(self.infoTable.width() * 0.5))
@@ -120,11 +132,8 @@ class HogaWin(QWidget):
         self.tableWidget.horizontalHeader().setVisible(False)
 
         #self.tableWidget.setAlternatingRowColors(True)
-        self.tableWidget.setColumnWidth(0, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(1, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(2, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(3, int(self.tableWidget.width() * 0.2))
-        self.tableWidget.setColumnWidth(4, int(self.tableWidget.width() * 0.2))  
+        for col in range(self.tableWidget.columnCount()):
+            self.tableWidget.setColumnWidth(col, int(self.tableWidget.width() * 0.2))    
         
         #가로스크롤바 제거
         self.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
@@ -213,6 +222,9 @@ class HogaWin(QWidget):
             self.c_hoga_dict = new_data
             self.updateTable()
     def on_stock_info_changed(self, data):
+        """
+        실시간 종목정보 업데이트
+        """
         if type(data) is dict :
             key = None
             dataStr = ""
@@ -234,18 +246,41 @@ class HogaWin(QWidget):
                 # self.infoTable.setItem(0, 1, item)
                 
                 self.infoTable.item(0, 1).setText(f"{pChange}({movePercent}%)")
-                self.infoTable.item(1, 0).setText(f"{nowPrice}")
+                # self.infoTable.item(1, 0).setText(f"{nowPrice}")
                 self.infoTable.item(1, 1).setText(f"{tAmt}")
+                
+                item = self.infoTable.item(1, 0)
+                if int(data['nowPrice']) > 0 :
+                    item.setForeground(QColor("red"))
+                else :
+                    item.setForeground(QColor("blue"))
+                item.setText(f"{nowPrice}")
     
+    def readInterestList(self):
+        """
+            관심종목 체크 : 해당종목이 관심종목에 추가되어있는지 여부 체크
+        """
+        listData = readJson("interestList")
+        if listData is not None and len(listData) >= 0 and self.STOCK_NAME in listData :
+            self.addInterestBtn.setEnabled(False)
+            
     def addToInterestList(self):
         """
             관심종목 추가 이벤트.
         """
         listData = readJson("interestList")
-        if len(listData) >= 0 :
-            listData[self.STOCK_NAME] = self.STOCK_CODE
+        if listData is not None :
+            if len(listData) >= 0 and self.STOCK_NAME not in listData :
+                listData[self.STOCK_NAME] = {"code": self.STOCK_CODE}
+                writeJson("interestList", listData)
+                self.addInterestBtn.setEnabled(False)
+            elif self.STOCK_NAME in listData :
+                showAlert("이미 관심종목에 추가된 종목입니다.")
+        else :
+            listData = {}
+            listData[self.STOCK_NAME] = {"code": self.STOCK_CODE}
             writeJson("interestList", listData)
-        
+            self.addInterestBtn.setEnabled(False)
                 
     def handle_tbItem_click(self, item):
         row = item.row()
