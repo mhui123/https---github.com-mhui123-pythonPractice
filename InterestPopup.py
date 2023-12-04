@@ -62,17 +62,18 @@ class InterestPopup(QWidget):
                     context_menu.addAction(copy_action)
                     context_menu.exec_(event.globalPos())
         
-       
+    #self.mainWin.stockBasicInfo의 가격정보 tableWidget에 뿌리기 구현필요
     def test(self, data):
         # readJson("abc")
         print(f"[관심종목 데이터수신 테스트] : {data}")
-        self.callIdx += 1
-        self.callBasicInfo(self.codeList[self.callIdx])
-        if self.callIdx == len(self.codeList) -1 :
-            self.callIdx = 0 #조회완료 후 호출인덱스 초기화
+        if len(self.codeList) > 1 :
+            self.callIdx += 1
+            self.callBasicInfo(self.codeList[self.callIdx])
+            if self.callIdx == len(self.codeList) -1 :
+                self.callIdx = 0 #조회완료 후 호출인덱스 초기화
     def gridList(self):
             "listData를 기반으로 QTableWidget을 생성하여 관심종목 리스트를 표현한다."
-            if len(self.listData) > 0 :
+            if self.listData is not None and len(self.listData) > 0 :
                 for row, key in enumerate(self.listData):
                     self.interList.setRowCount(self.interList.rowCount() + 1)
                     item = QTableWidgetItem(str(key))
@@ -83,7 +84,8 @@ class InterestPopup(QWidget):
                 
     def readList(self):
         self.listData = readJson(fileNm)
-        self.codeList = [value['code'] for value in self.listData.values()]
+        if self.listData is not None :
+            self.codeList = [value['code'] for value in self.listData.values()]
         
     def modifyList(self):
         #관심종목 테이블에서 제거
@@ -116,18 +118,19 @@ class InterestPopup(QWidget):
         print(f"시간구분: {timeGubun}")
         # self.listData = {'KG이니시스': '035600', 'GS리테일': '007070', '셀트리온': '068270'}
         
-        for idx, key in enumerate(self.listData):
-            mode = 0
-            code = self.listData[key]['code']
-            if idx > 0 : mode = 1
-            
-            if timeGubun == "장중":
-                print(f'self.SetRealReg({self.SCREEN_NO}, {code}, "10;", {mode})') 
-                #mainWin에 추가했을떄 해당코드 활성화처리
-                self.mainWin.SetRealReg(self.SCREEN_NO, code, "10;", mode) #0 : 신규요청 1: 추가요청
-        if timeGubun != "장중":
-            firstCode = self.codeList[self.callIdx]
-            self.callBasicInfo(firstCode)
+        if self.listData is not None :
+            for idx, key in enumerate(self.listData):
+                mode = 0
+                code = self.listData[key]['code']
+                if idx > 0 : mode = 1
+                
+                if timeGubun == "장중":
+                    print(f'self.SetRealReg({self.SCREEN_NO}, {code}, "10;", {mode})') 
+                    #mainWin에 추가했을떄 해당코드 활성화처리
+                    self.mainWin.SetRealReg(self.SCREEN_NO, code, "10;", mode) #0 : 신규요청 1: 추가요청
+            if timeGubun != "장중":
+                firstCode = self.codeList[self.callIdx]
+                self.callBasicInfo(firstCode)
         # if timeGubun != "장중":
         #     self.mainWin.getStockBasicInfo(codeList, self.SCREEN_NO)
     def callBasicInfo(self, code):
