@@ -1,13 +1,21 @@
 import sys, os
-from PyQt5 import QtCore
+import typing
+from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QVariant, QEvent
+from PyQt5.QtGui import QFont, QColor, QFontInfo
 from JsonControl import *
 from TableControl import *
 
 fileNm = "interestList"
+app = QApplication([])
+current_font = app.font()
+# Get the font info
+font_info = QFontInfo(current_font)
+# Get the font family name
+font_family_name = font_info.family()
 
 # class InterestPopup(QMainWindow):
 class InterestPopup(QWidget):
@@ -17,13 +25,16 @@ class InterestPopup(QWidget):
     HOGA_SCREEN = "0101"
     codeList = []
     callIdx = 0
+    timeGubun = None
     def __init__(self, parent):
         self.mainWin = parent
+        self.timeGubun = self.mainWin.determinTime()
         super().__init__()
         self.readList()
         self.initUi()    
         self.gridList()
         self.callRealTimeData()
+        
     
     def initUi(self):
         layout = QGridLayout(self)
@@ -64,13 +75,48 @@ class InterestPopup(QWidget):
         
     #self.mainWin.stockBasicInfo의 가격정보 tableWidget에 뿌리기 구현필요
     def test(self, data):
-        # readJson("abc")
-        print(f"[관심종목 데이터수신 테스트] : {data}")
-        if len(self.codeList) > 1 :
-            self.callIdx += 1
-            self.callBasicInfo(self.codeList[self.callIdx])
-            if self.callIdx == len(self.codeList) -1 :
-                self.callIdx = 0 #조회완료 후 호출인덱스 초기화
+        # print(f"[관심종목 데이터수신 테스트] : {data}")
+        
+        if self.timeGubun != "장중":
+            if len(self.codeList) > 1 :
+                self.callIdx += 1
+                self.callBasicInfo(self.codeList[self.callIdx])
+                if self.callIdx == len(self.codeList) -1 :
+                    self.callIdx = 0 #조회완료 후 호출인덱스 초기화
+        else : 
+            self.gridRealData(data)
+            
+    def gridRealData(self, data):
+        rowIdx = self.codeList.index(data['종목코드']) if data['종목코드'] in self.codeList else None
+        if rowIdx != None:
+            gridKeys = ['현재가', '거래량', '전일대비', '등락율']
+            for idx, key in enumerate(gridKeys) :
+                value = 0
+                intVal = 0
+                if key == '등락율' :
+                    intVal = float(data[key])
+                    value = str(intVal)+"%"
+                else :
+                    intVal = int(data[key])
+                    value = format(abs(intVal), ',') if key != '전일대비' else format(intVal, ',')
+                
+                font = QFont(font_family_name, 12, QFont.Bold)
+                
+                isToInsert = True if self.interList.item(rowIdx +1, idx +1) == None else False
+                item = QTableWidgetItem(value) if isToInsert == True else self.interList.item(rowIdx +1, idx +1)
+                item.setFont(font)
+                
+                if intVal > 0 :
+                    item.setForeground(QColor("red"))
+                else :
+                    item.setForeground(QColor("blue"))
+                    
+                if isToInsert == True:
+                    item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
+                    self.interList.setItem(rowIdx +1, idx +1, item)
+                else :    
+                    item.setText(value)
+                
     def gridList(self):
             "listData를 기반으로 QTableWidget을 생성하여 관심종목 리스트를 표현한다."
             if self.listData is not None and len(self.listData) > 0 :
@@ -114,7 +160,7 @@ class InterestPopup(QWidget):
         # 찾지 못한 경우
         return None, None
     def callRealTimeData(self):
-        timeGubun = self.mainWin.determinTime()
+        timeGubun = self.timeGubun
         print(f"시간구분: {timeGubun}")
         # self.listData = {'KG이니시스': '035600', 'GS리테일': '007070', '셀트리온': '068270'}
         
@@ -136,6 +182,9 @@ class InterestPopup(QWidget):
     def callBasicInfo(self, code):
         print(f"조회대상 : {self.codeList} {code}")
         self.mainWin.getStockBasicInfo(code, self.SCREEN_NO)
+    
+    def closeEvent(self, event):
+        self.mainWin.DisConnectRealData(self.SCREEN_NO)
           
 #작업완료후 Qwidget화 할때 제거
 # def main():

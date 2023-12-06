@@ -54,6 +54,7 @@ class MyWin(QMainWindow):
     NOW_ORD_CODE = None
     NOW_ORD_NAME = None
     REQ_OCCUPY = False
+    REAL_ON = False
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -127,17 +128,16 @@ class MyWin(QMainWindow):
         layout.addWidget(self.code_edit)
         
         myStockBtn = QPushButton("보유종목", self)
-        # myStockBtn.move(190, self.height() - myStockBtn.height() - self.statusBar().height())
+        myStockBtn.move(190, self.height() - myStockBtn.height() - self.statusBar().height())
         myStockBtn.clicked.connect(self.openMyStocks)
         
         interStockBtn = QPushButton("관심종목", self)
-        # interStockBtn.move(190, self.height() - interStockBtn.height() - self.statusBar().height())
+        interStockBtn.move(190, self.height() - myStockBtn.y() + myStockBtn.height() + 10  - self.statusBar().height())
         interStockBtn.clicked.connect(self.openInterStocks)
-        btns = QVBoxLayout(self)
-        btns.addWidget(myStockBtn)
-        btns.addWidget(interStockBtn)
+        # btns = QVBoxLayout(self)
+        # layout.addWidget(myStockBtn)
+        # layout.addWidget(interStockBtn)
         
-        self.isClicked = False
     def writeLog(self, text):
         text += "\n----------------------"
         self.text_edit.append(text)
@@ -271,7 +271,8 @@ class MyWin(QMainWindow):
         code = self.stockCode
         time = self.determinTime()
         if time == "장중":
-            self.SetRealReg("0111", code, "41;", 0) #0 : 신규요청 1: 추가요청
+            reqVal = 0 if self.REAL_ON == False else 1 #0 : 신규요청 1: 추가요청
+            self.SetRealReg("0111", code, "41;", reqVal) 
         elif time == "장시작전":
             self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
         elif time == "장마감":
@@ -435,7 +436,8 @@ class MyWin(QMainWindow):
     
     def update_hoga(self): #호가창 업데이트
         self.dataChanged.emit(self.hoga_dict)
-        self.stockInfoChanged.emit(self.stock_info)
+        if 'code' in self.stock_info and self.stockCode == self.stock_info['code']:
+            self.stockInfoChanged.emit(self.stock_info)
     
     def update_account_info(self): #호가창 종목정보 업데이트
         toSend = {"myCash" : self.myCash, "myUsableCash" : self.myUsableCash, "hogawinData": self.hogawin_data}
@@ -526,7 +528,7 @@ class MyWin(QMainWindow):
                 pickData['qty'] = int(received_data['보유수량'])
                 pickData['pQty'] = int(received_data['주문가능수량'])
                 pickData['boughtTotal'] = int(received_data['총매입가'])
-                pickData['avgPrice'] = int(pickData['boughtTotal'] / pickData['qty'])
+                pickData['avgPrice'] = 0 if pickData['qty'] == 0 else int(pickData['boughtTotal'] / pickData['qty'])
             else : #"신규데이터. 추가"
                 template = {'stockCd': received_data['종목코드'], 
                             'stockNm': received_data['종목명'],
@@ -556,6 +558,7 @@ class MyWin(QMainWindow):
         #받아온 메세지 출력 :4989 sendOrder KOA_NORMAL_BUY_KP_ORD [RC4027] 모의투자 상/하한가 오류입니다.
         
     def SetRealReg(self, screen_no, code_list, fid_list, real_type): #실시간 데이터 ON
+        self.REAL_ON = True
         print(f"[{screen_no} - {code_list} {fid_list} {real_type}] 실시간데이터 요청")
         self.ocx.dynamicCall("SetRealReg(QString, QString, QString, QString)", 
                               screen_no, code_list, fid_list, real_type)
@@ -565,6 +568,9 @@ class MyWin(QMainWindow):
     def DisConnectRealData(self, screenNo, stockCd = ""): #실시간 데이터 OFF
         code = "ALL" if stockCd == "" else stockCd
         screenNo = "ALL" if screenNo == "" else screenNo
+        
+        if code == "All" : self.REAL_ON = False
+        
         self.ocx.dynamicCall("SetRealRemove(QString, QString)", screenNo, code) #screenNo, stockCd
         self.writeLog(f"[{screenNo}][{stockCd}] 실시간데이터 OFF")
         # self.statusBar().showMessage("실시간데이터 OFF")
@@ -626,15 +632,20 @@ class MyWin(QMainWindow):
             self.stock_info["accPrice"] = accPrice
             self.stock_info["priceChange"] = priceChange
             self.stock_info["movePercent"] = movePercent
+            self.stock_info["code"] = code
+            
+            realData = {"종목명" : "", "종목코드" : code, "시가" : todayStart, "고가" : todayHigh, "저가" : todayLow,
+            "전일대비" : priceChange, "등락율" : movePercent, "거래량" : accAmt, "현재가" : nowPrice, "대비기호" : self.GetCommRealData(code, 25)}
             
             #['150540', '+157200', '+1600', '+1.03', '+157300', '+157200', '-57', '517418', '81331', '+156700', '+158700', '+155800', '2', '-727831', ...]
             fString = f"주식체결 ::: {self.stockName}( {code} )"
-            fInfos = f" {self.stockName} 현재가:{nowPrice} 누적거래량 {accAmt} 누적거래대금 {accPrice} 가격변동:{priceChange} 등락률:{movePercent}"
+            fInfos = f" {code} 현재가:{nowPrice} 누적거래량 {accAmt} 누적거래대금 {accPrice} 가격변동:{priceChange} 등락률:{movePercent}"
             # print(fString, fInfos)
             
             print(f"주식체결 확인 : {fInfos}")
             # 관심종목창에 데이터 전달할 필요.
             if self.thisAccountNo is not None: self.comparePrice(code, int(nowPrice))
+            self.update_InterListInfo(realData)
         elif real_type == "주식우선호가":
             #호가틱이 변동될 때 발생하는 이벤트.
             now = datetime.datetime.now()
