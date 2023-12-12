@@ -22,7 +22,7 @@ class InterestPopup(QWidget):
     listData = None
     selectedNm = None
     SCREEN_NO = "0150"
-    HOGA_SCREEN = "0101"
+    HOGA_SCREEN = "0111"
     codeList = []
     callIdx = 0
     timeGubun = None
@@ -32,7 +32,7 @@ class InterestPopup(QWidget):
         super().__init__()
         self.readList()
         self.initUi()    
-        self.gridList()
+        self.initList()
         self.callRealTimeData()
         
     
@@ -73,20 +73,27 @@ class InterestPopup(QWidget):
                     context_menu.addAction(copy_action)
                     context_menu.exec_(event.globalPos())
         
-    #self.mainWin.stockBasicInfo의 가격정보 tableWidget에 뿌리기 구현필요
     def test(self, data):
         # print(f"[관심종목 데이터수신 테스트] : {data}")
         
         if self.timeGubun != "장중":
             if len(self.codeList) > 1 :
+                print(f"[관심종목] - !장중data : {data}")
                 self.callIdx += 1
-                self.callBasicInfo(self.codeList[self.callIdx])
-                if self.callIdx == len(self.codeList) -1 :
-                    self.callIdx = 0 #조회완료 후 호출인덱스 초기화
+                if self.callIdx <= len(self.codeList) -1 :
+                    self.callBasicInfo(self.codeList[self.callIdx])
+                    # self.callIdx = 0 #조회완료 후 호출인덱스 초기화
+                else :
+                    """
+                    data= {'KG이니시스': {'250최고': 14470, '250최저': -10080, '거래대비': -79.41, '거래량': 257275, '고가': 13120, '기준가': 12960, '대비기호': 5, '등락율': -0.08, '상한가': 16840, '시가': 12960, '연중최고': 14470, '연중최저': -10080, '저가': -12770, '전일대비': -10, '전일대비,등락율': '-10 (-0.08%)', '종목명': 'KG이니시스', '종목코드': 35600, '하한가': -9080, '현재가': -12950}, '셀트리온': {'250최고': 184900, '250최저': -131000, '거래대비': 110.28, '거래량': 1321770, '고가': 184900, '기준가': 177700, '대비기호': 2, '등락율': 3.21, '상한가': 231000, '시가': 178600, '연중최고': 184900, '연중최저': -131000, '저가': -177300, '전일대비': 5700, '전일대비,등락율': '5700 (3.21%)', '종목명': '셀트리온', '종목코드': 68270, '하한가': -124400, '현재가': 183400}}
+                    #해당 data를 self.interList에 뿌려주기.
+                    """
+                    for key in data.keys():
+                        self.gridData(data[key])
         else : 
-            self.gridRealData(data)
+            self.gridData(data)
             
-    def gridRealData(self, data):
+    def gridData(self, data):
         rowIdx = self.codeList.index(data['종목코드']) if data['종목코드'] in self.codeList else None
         if rowIdx != None:
             gridKeys = ['현재가', '거래량', '전일대비', '등락율']
@@ -117,7 +124,7 @@ class InterestPopup(QWidget):
                 else :    
                     item.setText(value)
                 
-    def gridList(self):
+    def initList(self):
             "listData를 기반으로 QTableWidget을 생성하여 관심종목 리스트를 표현한다."
             if self.listData is not None and len(self.listData) > 0 :
                 for row, key in enumerate(self.listData):
@@ -125,7 +132,15 @@ class InterestPopup(QWidget):
                     item = QTableWidgetItem(str(key))
                     item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
                     self.interList.setItem(row +1, 0, item)
-                "grid!!"
+                
+                tbColCnt = self.interList.columnCount()
+                tbColWidth = self.interList.columnWidth(0)
+                w = tbColCnt * tbColWidth
+                tbRowCnt = self.interList.rowCount()
+                tbRowHeight = self.interList.rowHeight(0)
+                h = tbRowCnt * tbRowHeight
+                self.interList.setMinimumWidth(w)
+                self.interList.setMinimumHeight(h)
             else : print(f"관심종목을 표현할 데이터가 존재하지 않습니다.")
                 
     def readList(self):
@@ -180,6 +195,9 @@ class InterestPopup(QWidget):
         # if timeGubun != "장중":
         #     self.mainWin.getStockBasicInfo(codeList, self.SCREEN_NO)
     def callBasicInfo(self, code):
+        """
+        code : 조회할 종목코드
+        """
         print(f"조회대상 : {self.codeList} {code}")
         self.mainWin.getStockBasicInfo(code, self.SCREEN_NO)
     

@@ -448,7 +448,8 @@ class HogaWin(QWidget):
     def closeEvent(self, event):
         if hasattr(self, "hogaOrderwin"): # self에 팝업변수 존재 체크
             self.hogaOrderwin.close()
-        self.mainWin.DisConnectRealData(self.SCREEN_NO, self.STOCK_CODE)
+        self.mainWin.DisConnectRealData(self.SCREEN_NO)
+        # self.mainWin.DisConnectRealData("")
         
     def moveEvent(self, event):
         self.posSignal.emit({"x" : self.x(), "y":self.y()})

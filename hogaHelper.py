@@ -12,6 +12,7 @@ from HogaWin import *
 from AssetWin import *
 from OrderInfoPop import *
 from InterestPopup import *
+from JsonControl import *
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -55,6 +56,8 @@ class MyWin(QMainWindow):
     NOW_ORD_NAME = None
     REQ_OCCUPY = False
     REAL_ON = False
+    
+    screenNos = { "hogaWin" : "0111"}
     def __init__(self):
         super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
@@ -270,9 +273,10 @@ class MyWin(QMainWindow):
     def call_hogaData(self): #호가창 호출이벤트
         code = self.stockCode
         time = self.determinTime()
+        screenNo = self.screenNos['hogaWin']
         if time == "장중":
             reqVal = 0 if self.REAL_ON == False else 1 #0 : 신규요청 1: 추가요청
-            self.SetRealReg("0111", code, "41;", reqVal) 
+            self.SetRealReg(screenNo, code, "41;", reqVal) 
         elif time == "장시작전":
             self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
         elif time == "장마감":
@@ -315,7 +319,7 @@ class MyWin(QMainWindow):
             temp = {}
             #set stockBasicInfo
             for item in output:
-                value = classifyNumStr(self.getCommData(trCode, rqName, item).strip())
+                value = classifyNumStr(self.getCommData(trCode, rqName, item).strip()) if item != '종목코드' else self.getCommData(trCode, rqName, item).strip()
                 temp[item] = value
             temp['전일대비,등락율'] = f"{temp['전일대비']} ({temp['등락율']}%)"
             self.stockBasicInfo[name] = temp
@@ -569,10 +573,11 @@ class MyWin(QMainWindow):
         code = "ALL" if stockCd == "" else stockCd
         screenNo = "ALL" if screenNo == "" else screenNo
         
-        if code == "All" : self.REAL_ON = False
+        if code == "ALL" : self.REAL_ON = False
         
         self.ocx.dynamicCall("SetRealRemove(QString, QString)", screenNo, code) #screenNo, stockCd
         self.writeLog(f"[{screenNo}][{stockCd}] 실시간데이터 OFF")
+        print(f"SetRealRemove(QString, QString) {screenNo}, {code}")
         # self.statusBar().showMessage("실시간데이터 OFF")
     
     def _handler_real_data(self, code, real_type, data): #실시간 데이터 처리
@@ -677,13 +682,23 @@ class MyWin(QMainWindow):
             "하이얼펀드": 9,
             "K-OTC": 30
         }
-        result = self.ocx.dynamicCall("GetCodeListByMarket(QString)", gubun["코스닥"])
-        arr = result.split(";")
-        name = list(map(self.getStockName, arr))
-        nameString = ";".join(name)
-        nameString
+        kospiCds = self.ocx.dynamicCall("GetCodeListByMarket(QString)", gubun["코스피"])
+        kosdoqCds = self.ocx.dynamicCall("GetCodeListByMarket(QString)", gubun["코스닥"])
         
-        # code_list = self.dynamicCall("GetCodeListByMarket(QString)", market)
+        kospiCds = kospiCds.split(";")
+        kosdoqCds = kosdoqCds.split(";")
+        
+        kospiNms = list(map(self.getStockName, kospiCds))
+        kosdoqNms = list(map(self.getStockName, kosdoqCds))
+        
+        data = {}
+        for idx, cd in enumerate(kospiCds) :
+            data[cd] = kospiNms[idx]
+            
+        for idx, cd in enumerate(kosdoqCds) :
+            data[cd] = kosdoqNms[idx]
+            
+        writeJson("codeList", data)
     
     def getStockName(self, code):
         stockName = self.ocx.dynamicCall("GetMasterCodeName(QString)", code)
@@ -691,25 +706,34 @@ class MyWin(QMainWindow):
     
     def openPopup(self, purpose):
         if purpose == "hogaWin":
-            print("새로운 호가창을 열기위해 기존의 호가창을 닫는다.")
-            if hasattr(self, "hogaWin"): # self에 팝업변수 존재 체크
-                if isinstance(self.hogaWin, QWidget):
-                    if hasattr(self.hogaWin, "hogaOrderwin"): # self에 팝업변수 존재 체크
-                        self.hogaWin.hogaOrderwin.close()
-                self.hogaWin.close()
+            if hasattr(self, "hogaWin") and self.hogaWin.isVisible(): # self에 팝업변수 존재 체크
+                self.checkWinIsOpen("hogaOrderwin")
+                self.checkWinIsOpen("hogaWin")
+                print("새로운 호가창을 열기위해 기존의 호가창을 닫는다.")
+                
+                # if isinstance(self.hogaWin, QWidget):
+                #     if hasattr(self.hogaWin, "hogaOrderwin") and self.hogaWin.hogaOrderwin.isVisible(): # self에 팝업변수 존재 체크
+                #         self.hogaWin.hogaOrderwin.close()
+                # self.hogaWin.close()
+                # self.DisConnectRealData(self.screenNos['hogaWin'])
             toPassData = {"account":self.accounts, "myCash":self.myCash, "myUsableCash" : self.myUsableCash, "hogawinData": self.hogawin_data, "myAssetInfo":self.myAssetInfo}
             self.hogaWin = HogaWin(self, toPassData)
             self.hogaWin.show()
         elif purpose == "openMyStocks":
+            self.checkWinIsOpen("assetWin")
             self.assetWin = AssetWin(self)
             self.assetWin.show()
         elif purpose == "orderInfoPop":
+            self.checkWinIsOpen("orderInfoPop")
             self.orderInfoPop = OrderInfoPop(self)
             self.orderInfoPop.show()
         elif purpose == "openInterStocks":
+            self.checkWinIsOpen("interWin")
             self.interWin = InterestPopup(self)
             self.interWin.show()
-    
+    def checkWinIsOpen(self, purpose):
+        if hasattr(self,purpose) and getattr(self, purpose).isVisible():
+            getattr(self, purpose).close()
     def comparePrice(self, code, nowPrice):
         if hasattr(self, "assetWin"):
             assets = self.myAssetInfos[self.thisAccountNo]['assets']
