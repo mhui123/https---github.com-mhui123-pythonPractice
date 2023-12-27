@@ -13,6 +13,7 @@ from AssetWin import *
 from OrderInfoPop import *
 from InterestPopup import *
 from JsonControl import *
+from pandas import Series
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -57,43 +58,42 @@ class MyWin(QMainWindow):
     REQ_OCCUPY = False
     REAL_ON = False
     
+    ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
+    stockName = ""
+    stockCode = ""
+    # -------------------------------------------------------------------
+    stockMaxPrice = 0
+    stockMinPrice = 0
+    nowP = 0 #현재가
+    nowTAmt = 0 #거래량
+    nowChangePer = 0 #등락률
+    nowChangePrice = 0 #전일대비
+    needSelectData = ""
+    selectedData = ""
+    # -------------------------------------------------------------------
+    addedCnt = 0
+    testVal = 1
+    hoga_dict = {}
+    stock_info = {}
+    loginPassed = False
+    accounts = None
+    selected_account = None
+    account_pw = None
+    myAssetInfo = []
+    myAssetInfos = {}
+    orderInfos = []
+    thisAccountNo = None
+    stockBasicInfo = {}
+    myCash = 0
+    myUsableCash = 0
+    hogawin_data = None
+    req_accountNo = None
+    charge = {"virtual" :{ "fee" : 0.0035, "tax" : 0.002}, "real" : {"fee": 0.00015, "tax": 0.002}}
+    MODE = "virtual" #virtual : 모의투자, real: 실제투자
+    
     screenNos = { "hogaWin" : "0111"}
     def __init__(self):
         super().__init__()
-        self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1") #키움API 통신용 변수
-        self.stockName = ""
-        self.stockCode = ""
-        self.stockMaxPrice = 0
-        self.stockMinPrice = 0
-        self.nowP = 0 #현재가
-        self.nowTAmt = 0 #거래량
-        self.nowChangePer = 0 #등락률
-        self.nowChangePrice = 0 #전일대비
-        
-        self.needSelectData = ""
-        self.selectedData = ""
-        self.addedCnt = 0
-        self.testVal = 1
-        self.hoga_dict = {}
-        self.stock_info = {}
-        self.loginPassed = False
-        self.accounts = None
-        self.selected_account = None
-        self.account_pw = None
-        self.myAssetInfo = []
-        self.myAssetInfos = {}
-        self.orderInfos = []
-        self.thisAccountNo = None
-        self.stockBasicInfo = {}
-        
-        self.myCash = 0
-        self.myUsableCash = 0
-        
-        self.hogawin_data = None
-        self.req_accountNo = None
-        
-        self.charge = {"virtual" :{ "fee" : 0.0035, "tax" : 0.002}, "real" : {"fee": 0.00015, "tax": 0.002}}
-        self.MODE = "virtual" #virtual : 모의투자, real: 실제투자
         
         self.loginEvent()
         """ocx 이벤트구간"""
@@ -122,28 +122,39 @@ class MyWin(QMainWindow):
         searchBtn.move(190, 20)
         self.code_edit.move(80, 20)
         
-        self.text_edit = QTextBrowser(self) #QTextEdit(self)
-        self.text_edit.setGeometry(10,60,self.width() - 20, int(self.height() * 0.4))
+        # self.text_edit = QTextBrowser(self) #QTextEdit(self)
+        # self.text_edit.setGeometry(10,60,self.width() - 20, int(self.height() * 0.4))
         # self.text_edit.setEnabled(False)
         
         #검색어완성 위젯
         layout = QVBoxLayout(self)
         layout.addWidget(self.code_edit)
         
-        myStockBtn = QPushButton("보유종목", self)
-        myStockBtn.move(190, self.height() - myStockBtn.height() - self.statusBar().height())
-        myStockBtn.clicked.connect(self.openMyStocks)
+        secondY = searchBtn.y() + searchBtn.height() + 10
         
         interStockBtn = QPushButton("관심종목", self)
-        interStockBtn.move(190, self.height() - myStockBtn.y() + myStockBtn.height() + 10  - self.statusBar().height())
+        interStockBtn.move(20, secondY)
         interStockBtn.clicked.connect(self.openInterStocks)
+        
+        myStockBtn = QPushButton("보유종목", self)
+        myStockBtn.move(interStockBtn.x() + interStockBtn.width() + 5, secondY)
+        myStockBtn.clicked.connect(self.openMyStocks)
+        
+        collectBtn = QPushButton("주식모으기", self)
+        collectBtn.move(myStockBtn.x() + myStockBtn.width() + 5, secondY)
+        collectBtn.clicked.connect(self.openCollectStocks)
+        
+        interStockBtn = QPushButton("test", self)
+        interStockBtn.move(20, secondY + 50)
+        interStockBtn.clicked.connect(self.callDailyData)
+        
         # btns = QVBoxLayout(self)
         # layout.addWidget(myStockBtn)
         # layout.addWidget(interStockBtn)
         
     def writeLog(self, text):
         text += "\n----------------------"
-        self.text_edit.append(text)
+        # self.text_edit.append(text)
         
     def loginEvent(self):
         self.ocx.dynamicCall("CommConnect()")
@@ -216,6 +227,9 @@ class MyWin(QMainWindow):
         self.openPopup("openMyStocks")
     def openInterStocks(self):
         self.openPopup("openInterStocks")
+    def openCollectStocks(self):
+        self.openPopup("openCollectStocks")
+        
     def typing(self): #종목명 타이핑 이벤트
         word_list = []
         
@@ -256,7 +270,7 @@ class MyWin(QMainWindow):
         if toFind :
             self.pressEnter()
         else :
-            self.text_edit.append("정확한 종목명을 입력하여 조회해주세요.")
+            showAlert("정확한 종목명을 입력하여 조회해주세요.")
     
     def determinTime(self):
         current_time = datetime.datetime.now()
@@ -276,11 +290,12 @@ class MyWin(QMainWindow):
         screenNo = self.screenNos['hogaWin']
         if time == "장중":
             reqVal = 0 if self.REAL_ON == False else 1 #0 : 신규요청 1: 추가요청
-            self.SetRealReg(screenNo, code, "41;", reqVal) 
+            self.SetRealReg(screenNo, code, "41;", reqVal)
         elif time == "장시작전":
-            self.text_edit.append("장 시작전입니다. 수동으로 데이터를 호출합니다.")
+            self.writeLog("장 시작전입니다. 수동으로 데이터를 호출합니다.")
+            
         elif time == "장마감":
-            self.text_edit.append("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
+            self.writeLog("장 마감되었습니다. 수동호출로 데이터를 요청합니다.")
         
         self.requestData("opt10004", "종목코드", code, "0111")
         
@@ -437,6 +452,31 @@ class MyWin(QMainWindow):
             
             self.openPopup("hogaWin")
             self.update_hoga()
+        elif rqName == "opt10081_req" : #일봉데이터 조회
+            daily = []
+            for i in range(nCnt):
+                temp = {}
+                temp["dt"] = self.getCommData(trCode, rqName, "일자", i)
+                temp["stPrice"] = self.getCommData(trCode, rqName, "시가", i)
+                temp["hPrice"] = self.getCommData(trCode, rqName, "고가", i)
+                temp["lPrice"] = self.getCommData(trCode, rqName, "저가", i)
+                temp["trAmt"] = self.getCommData(trCode, rqName, "거래량", i)
+                daily.append(temp)
+            self.handleDailyData(daily)
+            print("[opt10081_req]")
+            # self.callDailyData()
+    
+    def callDailyData(self):
+        today = datetime.datetime.now().strftime("%Y%m%d")
+        code = "035600"
+        self.setInputValue("종목코드", code)
+        self.setInputValue("기준일자", today)
+        self.setInputValue("수정주가구분", "0")
+        self.requestData("opt10081", "", "", "1234")
+        
+    def handleDailyData(self, data):
+        if isinstance(data, list):
+            print(data)
     
     def update_hoga(self): #호가창 업데이트
         self.dataChanged.emit(self.hoga_dict)
@@ -576,6 +616,7 @@ class MyWin(QMainWindow):
         if code == "ALL" : self.REAL_ON = False
         
         self.ocx.dynamicCall("SetRealRemove(QString, QString)", screenNo, code) #screenNo, stockCd
+        
         self.writeLog(f"[{screenNo}][{stockCd}] 실시간데이터 OFF")
         print(f"SetRealRemove(QString, QString) {screenNo}, {code}")
         # self.statusBar().showMessage("실시간데이터 OFF")
@@ -731,6 +772,13 @@ class MyWin(QMainWindow):
             self.checkWinIsOpen("interWin")
             self.interWin = InterestPopup(self)
             self.interWin.show()
+        elif purpose == "openCollectStocks":
+            # 주식모으기창에 대응되는 class파일 작성필요
+            # 토스증권 기능이 맘에드니 그것과 유사하게 구현하자.
+            self.checkWinIsOpen("collectWin")
+            self.collectWin = InterestPopup(self) 
+            self.collectWin.show()
+            
     def checkWinIsOpen(self, purpose):
         if hasattr(self,purpose) and getattr(self, purpose).isVisible():
             getattr(self, purpose).close()
@@ -773,8 +821,9 @@ class MyWin(QMainWindow):
             self.interWin.close()
         event.accept() #프로그램 종료 . 이벤트 회수?
     
-    def resizeEvent(self, event): #창크기변경 이벤트
-        self.text_edit.setGeometry(10,60,self.width() - 20, int(self.height() * 0.4))
+    # def resizeEvent(self, event): #창크기변경 이벤트
+    #     self.text_edit.setGeometry(10,60,self.width() - 20, int(self.height() * 0.4))
+        
     # def moveEvent(self, event):
     #     print(f"{self.x()} {self.y()}")
         
