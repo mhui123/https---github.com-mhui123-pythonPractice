@@ -18,7 +18,7 @@ class AssetWin(QWidget):
         self.getStockList()
 
     def initUI(self):
-        self.setWindowTitle("테스트")
+        self.setWindowTitle("보유종목")
         self.setGeometry(15,15,800,760)
         
         windowW = self.width()
@@ -28,11 +28,16 @@ class AssetWin(QWidget):
         self.frame.setStyleSheet(u"border: 1px solid rgba(0,0,0,255);background-color: rgba(255, 255, 255, 0);margin-left:5px;")
         #self.setGeometry(300,300,300,200)
         testBtn = QPushButton("test", self)
-        testBtn.setGeometry(30,30,100,20)
+        testBtn.setGeometry(70,30,100,20)
         testBtn.clicked.connect(self.test)
         
         self.combo_box = QComboBox(self)
         self.combo_box.currentIndexChanged.connect(self.selectAccount)
+        self.combo_box.move(30, 30)
+        
+        self.callAutoDetectBtn = QPushButton("보유종목청산")
+        self.callAutoDetectBtn.setGeometry(700,30,100,20)
+        
         accounts = self.mainWin.accounts
         for item in accounts :
             self.combo_box.addItem(item)
@@ -89,8 +94,11 @@ class AssetWin(QWidget):
                     item.setTextAlignment(int(Qt.AlignRight|Qt.AlignVCenter))
                     self.stockTable.setItem(row +1, col, item)
             else :
-                earnPrice = (abs(rowData['nowPrice']) * rowData['qty']) - (rowData['avgPrice'] * rowData['qty']) - fee - tax
-                earnRate = round((earnPrice / (abs(rowData['nowPrice']) * rowData['qty'])) * 100, 2)
+                earnPrice = 0
+                earnRate = 0
+                if rowData['qty'] > 0 :
+                    earnPrice = (abs(rowData['nowPrice']) * rowData['qty']) - (rowData['avgPrice'] * rowData['qty']) - fee - tax
+                    earnRate = round((earnPrice / (abs(rowData['nowPrice']) * rowData['qty'])) * 100, 2)
                 rowData['earnPrice'] = earnPrice
                 rowData['earnRate'] = earnRate
                 # print(f"테이블수정 {stockNm} ({rowData['nowPrice']} * {rowData['qty']}) - ({rowData['avgPrice']} * {rowData['qty']}) - ({fee}) - ({tax}) = {earnPrice}")
@@ -141,7 +149,7 @@ class AssetWin(QWidget):
             target.horizontalHeader().setVisible(False)
             target.setEditTriggers(QTableWidget.NoEditTriggers) #테이블 직접수정 불가
             target.setStyleSheet("QTableWidget { border : none; gridline-color: white; border-top:10px}"
-                                       "QTableWidget::item:selected { background-color: transparent; }"
+                                       "QTableWidget::item:selected { background-color: transparent; color:black }"
                                        ) #테두리제거
         elif isinstance(target, QWidget) or isinstance(target, QMainWindow):
             target.setStyleSheet("background-color:white") #테두리제거
