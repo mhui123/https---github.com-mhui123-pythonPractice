@@ -13,7 +13,7 @@ from AssetWin import *
 from OrderInfoPop import *
 from InterestPopup import *
 from JsonControl import *
-from pandas import Series
+
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -466,9 +466,10 @@ class MyWin(QMainWindow):
             print("[opt10081_req]")
             # self.callDailyData()
     
-    def callDailyData(self):
+    def callDailyData(self, code = ""):
         today = datetime.datetime.now().strftime("%Y%m%d")
-        code = "035600"
+        if code == "" :
+            code = self.stockCode
         self.setInputValue("종목코드", code)
         self.setInputValue("기준일자", today)
         self.setInputValue("수정주가구분", "0")
@@ -477,6 +478,7 @@ class MyWin(QMainWindow):
     def handleDailyData(self, data):
         if isinstance(data, list):
             print(data)
+            # 차트구현할 창에 해당 데이터 전달
     
     def update_hoga(self): #호가창 업데이트
         self.dataChanged.emit(self.hoga_dict)
